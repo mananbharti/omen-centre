@@ -94,6 +94,8 @@ RAIL_CSS = b"""
   background-color: alpha(@card_bg_color, 0.8); }
 .swatch { border-radius: 6px; min-width: 28px; min-height: 28px;
   padding: 0; }
+.readonly-banner { background-color: #5a4a12; color: #ffe9a8;
+  padding: 6px 14px; font-weight: 600; }
 .apply-footer { background-color: #1c1c26; padding: 8px 16px;
   border-top: 1px solid #2c2c3a; }
 .omen-tab { background: none; border: none; border-radius: 0;
@@ -775,6 +777,14 @@ class OmenWindow(Adw.ApplicationWindow):
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.toasts = Adw.ToastOverlay()
         self.toasts.set_vexpand(True)
+        if os.environ.get("OMEN_READ_ONLY") == "1":
+            ro = Gtk.Label(
+                label="Read-only mode: readings only. Apply, Restore and "
+                      "hardware changes are disabled; nothing is written "
+                      "to the keyboard or fans.")
+            ro.set_wrap(True)
+            ro.add_css_class("readonly-banner")
+            outer.append(ro)
         outer.append(self.toasts)
         self.set_content(outer)
 
@@ -995,6 +1005,9 @@ class OmenWindow(Adw.ApplicationWindow):
     def _lighting_dirty(self, dirty=True):
         for b in getattr(self, "_dirty_btns", ()):
             b.set_sensitive(bool(dirty))
+        if os.environ.get("OMEN_READ_ONLY") == "1" and getattr(
+                self, "_dirty_btns", None):
+            self._dirty_btns[1].set_sensitive(False)
         self._sync_footer()
 
     def _on_discard(self, _b):
@@ -1444,6 +1457,10 @@ class OmenWindow(Adw.ApplicationWindow):
         applyb.add_css_class("suggested-action")
         applyb.connect("clicked", self._on_apply_lighting)
         self._dirty_btns = (discard, applyb)
+        if os.environ.get("OMEN_READ_ONLY") == "1":
+            applyb.set_label("Apply (read-only)")
+            restore.set_sensitive(False)
+            restore.set_tooltip_text("Disabled in read-only mode")
         discard.set_sensitive(False)
         applyb.set_sensitive(False)
         restore.set_tooltip_text(
