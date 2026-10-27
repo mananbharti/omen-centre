@@ -468,6 +468,7 @@ class LightCanvas(Gtk.DrawingArea):
         self.zone_colors = ["FFFFFF"] * 4
         self.selected = -1
         self.zoom = 1.0
+        self._vs = 1.0
         self._on_zone_click = on_zone_click
         self._band_rects = []
         self.set_content_width(420)
@@ -511,10 +512,15 @@ class LightCanvas(Gtk.DrawingArea):
             gy += step
         # laptop geometry (zoom around center)
         cr.save()
-        cr.translate(w / 2.0, h / 2.0)
-        cr.scale(self.zoom, self.zoom)
-        cr.translate(-w / 2.0, -h / 2.0)
-        lw = min(w * 0.66, 640.0)
+        # fixed-aspect virtual device space: never stretch the laptop
+        rw, rh = w, h
+        vw, vh = 560.0, 330.0
+        self._vs = min(rw / vw, rh / vh) * 0.95
+        cr.translate(rw / 2.0, rh / 2.0)
+        cr.scale(self.zoom * self._vs, self.zoom * self._vs)
+        cr.translate(-vw / 2.0, -vh / 2.0)
+        w, h = vw, vh
+        lw = vw * 0.84
         scr_w, scr_h = lw * 0.78, h * 0.34
         cx = w / 2.0
         scr_x, scr_y = cx - scr_w / 2.0, h * 0.09
@@ -527,10 +533,10 @@ class LightCanvas(Gtk.DrawingArea):
         cr.fill()
         # red diamond accent on screen (generic stylized mark) with glow
         dxc, dyc, dr = cx, scr_y + scr_h / 2.0, min(16.0, scr_h * 0.22)
-        cr.set_source_rgba(0.85, 0.15, 0.25, 0.25)
-        cr.arc(dxc, dyc, dr * 2.6, 0, 6.2832)
+        cr.set_source_rgba(0.85, 0.15, 0.25, 0.08)
+        cr.arc(dxc, dyc, dr * 2.0, 0, 6.2832)
         cr.fill()
-        cr.set_source_rgba(0.85, 0.15, 0.25, 0.9)
+        cr.set_source_rgba(0.85, 0.15, 0.25, 0.6)
         cr.move_to(dxc, dyc - dr)
         cr.line_to(dxc + dr, dyc)
         cr.line_to(dxc, dyc + dr)
@@ -603,11 +609,10 @@ class LightCanvas(Gtk.DrawingArea):
             cr.fill()
         cr.restore()
         # keep hit-test rects in device coordinates
-        w, h = self.get_width(), self.get_height()
-        cxw, cyh = w / 2.0, h / 2.0
+        k = self.zoom * self._vs
         self._band_rects = [
-            ((bx - cxw) * self.zoom + cxw, (by - cyh) * self.zoom + cyh,
-             bw * self.zoom, bh * self.zoom)
+            ((bx - vw / 2.0) * k + rw / 2.0, (by - vh / 2.0) * k + rh / 2.0,
+             bw * k, bh * k)
             for (bx, by, bw, bh) in self._band_rects]
 
     def set_zoom(self, z):
@@ -1291,6 +1296,8 @@ class OmenWindow(Adw.ApplicationWindow):
         pcap.add_css_class("dim-label")
         pcap.add_css_class("caption")
         pcap.set_halign(Gtk.Align.START)
+        pcap.set_wrap(True)
+        pcap.set_xalign(0)
         effects_page.append(pcap)
         pframe = Gtk.Frame()
         pframe.set_hexpand(True)
