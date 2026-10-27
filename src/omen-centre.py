@@ -293,6 +293,72 @@ class CurveGraph(Gtk.DrawingArea):
         self._drag = None
 
 
+class KeyboardPreview(Gtk.DrawingArea):
+    """Stylized 4-zone keyboard, tinted per zone; click a zone to recolor."""
+
+    def __init__(self, on_zone_click):
+        super().__init__()
+        self.zone_colors = ["FFFFFF"] * 4
+        self._on_zone_click = on_zone_click
+        self.set_content_width(460)
+        self.set_content_height(150)
+        self.set_draw_func(self._draw)
+        click = Gtk.GestureClick()
+        click.connect("released", self._on_click)
+        self.add_controller(click)
+
+    def set_zone_color(self, i, hexs):
+        self.zone_colors[i] = hexs
+        self.queue_draw()
+
+    def _draw(self, area, cr, w, h):
+        pad = 10.0
+        zw = (w - 2 * pad) / 4.0
+        for i in range(4):
+            r = int(self.zone_colors[i][0:2], 16) / 255.0
+            g = int(self.zone_colors[i][2:4], 16) / 255.0
+            b = int(self.zone_colors[i][4:6], 16) / 255.0
+            x = pad + i * zw
+            # zone band
+            cr.set_source_rgba(r, g, b, 0.85)
+            self._rounded(cr, x + 2, pad, zw - 4, h - 2 * pad, 8)
+            cr.fill()
+            # faint key grid
+            cr.set_source_rgba(0, 0, 0, 0.18)
+            cr.set_line_width(1.0)
+            for row in range(1, 5):
+                y = pad + row * (h - 2 * pad) / 5.0
+                cr.move_to(x + 6, y)
+                cr.line_to(x + zw - 6, y)
+                cr.stroke()
+            for col in range(1, 6):
+                kx = x + col * (zw - 4) / 6.0
+                cr.move_to(kx, pad + 5)
+                cr.line_to(kx, h - pad - 5)
+                cr.stroke()
+            # zone label
+            cr.set_source_rgba(1, 1, 1, 0.85)
+            cr.select_font_face("Sans")
+            cr.set_font_size(11)
+            cr.move_to(x + 8, pad + 16)
+            cr.show_text("Z%d" % i)
+
+    def _rounded(self, cr, x, y, w, h, r):
+        cr.new_sub_path()
+        cr.arc(x + w - r, y + r, r, -1.5708, 0)
+        cr.arc(x + w - r, y + h - r, r, 0, 1.5708)
+        cr.arc(x + r, y + h - r, r, 1.5708, 3.1416)
+        cr.arc(x + r, y + r, r, 3.1416, 4.7124)
+        cr.close_path()
+
+    def _on_click(self, g, n, x, y):
+        w = self.get_width()
+        zw = (w - 20.0) / 4.0
+        i = int((x - 10.0) / zw)
+        if 0 <= i <= 3:
+            self._on_zone_click(i)
+
+
 def fmt_temp(mc):
     """millidegree-C string honoring the unit preference"""
     if mc is None:
@@ -543,6 +609,9 @@ class OmenWindow(Adw.ApplicationWindow):
         return page
 
     def _paint_button(self, b, hexs):
+        kb = getattr(self, "kb_preview", None)
+        if kb is not None and b in getattr(self, "zone_btns", []):
+            kb.set_zone_color(self.zone_btns.index(b), hexs)
         provider = Gtk.CssProvider()
         provider.load_from_data(
             (".zone-box, .swatch { background-color: #%s; }"
@@ -717,6 +786,14 @@ class OmenWindow(Adw.ApplicationWindow):
                         "Identify to see yours.")
         page.add(grp)
 
+        self.kb_preview = KeyboardPreview(self._on_preview_zone)
+        prow = Adw.ActionRow(
+            title="Keyboard",
+            subtitle="Stylized preview - use Identify for the real "
+                     "zone-to-side mapping on your unit")
+        prow.set_child(self.kb_preview)
+        grp.add(prow)
+
         zbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         zbox.set_homogeneous(True)
         self.zone_btns = []
@@ -739,6 +816,8 @@ class OmenWindow(Adw.ApplicationWindow):
             b.connect("clicked", self._on_zone_clicked, rel, b)
             zbox.append(wrap)
             self.zone_btns.append(b)
+        for i, b in enumerate(self.zone_btns):
+            self.kb_preview.set_zone_color(i, b._omen_hex)
         zrow = Adw.ActionRow()
         zrow.set_child(zbox)
         grp.add(zrow)
@@ -888,6 +967,14 @@ class OmenWindow(Adw.ApplicationWindow):
         grow.add_suffix(self.gradient_entry)
         grow.add_suffix(gbtn)
         agrp.add(grow)
+
+    def _on_preview_zone(self, i):
+        b = self.zone_btns[i]
+        picker = ColorPicker(
+            b._omen_hex,
+            lambda h: self._on_color_chosen("rgb_zones/zone0%d" % i, h, b))
+        picker.set_parent(b)
+        picker.popup()
 
     def _on_zone_clicked(self, b, rel, _b):
         picker = ColorPicker(b._omen_hex,
