@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0}
+body{width:1400px;height:340px;background:#0b0b10;font-family:"Noto Sans","DejaVu Sans",sans-serif;color:#fff;padding:34px 40px}
+h2{font-size:24px;letter-spacing:1px;color:#e8294a;margin-bottom:6px}
+p.s{font-size:16px;color:#a8a8b6;margin-bottom:28px}
+.row{display:flex;align-items:stretch;gap:0}
+.box{flex:1;border:1.5px solid #2c2c3a;background:#14141c;border-radius:14px;padding:18px 16px;min-height:150px}
+.box b{display:block;font-size:19px;margin-bottom:8px}
+.box span{font-size:14.5px;color:#b4b4c2;line-height:1.45;display:block}
+.box.hi{border-color:#e8294a;background:#1a1016}
+.tag{display:inline-block;font-size:12px;letter-spacing:.8px;border-radius:999px;padding:3px 10px;margin-bottom:10px;background:#2a2a36;color:#cfcfda}
+.hi .tag{background:#4a1522;color:#ffb3c0}
+.arr{width:34px;display:flex;align-items:center;justify-content:center;color:#e8294a;font-size:26px}
+</style></head><body>
+<h2>HOW A WRITE REACHES THE KEYBOARD</h2>
+<p class="s">The window never touches hardware. Only a small root helper does, and only for keys and values on its allowlist.</p>
+<div class="row">
+<div class="box"><div class="tag">YOUR USER</div><b>GTK 4 app</b><span>Reads sysfs. Stages changes. Nothing is written until you press Apply.</span></div>
+<div class="arr">&#9654;</div>
+<div class="box"><div class="tag">PASSWORD PROMPT</div><b>pkexec + polkit</b><span>Admin authentication, remembered for a few minutes. No blanket passwordless rule.</span></div>
+<div class="arr">&#9654;</div>
+<div class="box hi"><div class="tag">ROOT, TINY</div><b>omenctl</b><span>Fixed key allowlist, typed and bounded values. No shell strings, no free paths.</span></div>
+<div class="arr">&#9654;</div>
+<div class="box"><div class="tag">KERNEL</div><b>omen-rgb-keyboard</b><span>OmenLinux DKMS driver exposes sysfs files for the 4 zones.</span></div>
+</div></body></html>

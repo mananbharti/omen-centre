@@ -1,0 +1,28 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0}
+body{width:1600px;height:520px;background:#08080b;font-family:"Noto Sans","DejaVu Sans",sans-serif;color:#fff;position:relative;overflow:hidden}
+.glow{position:absolute;left:-200px;top:-260px;width:1000px;height:1000px;background:radial-gradient(circle,rgba(217,38,66,.55) 0%,rgba(217,38,66,.12) 45%,transparent 70%)}
+.glow2{position:absolute;right:-300px;bottom:-500px;width:1100px;height:1000px;background:radial-gradient(circle,rgba(60,90,255,.22),transparent 65%)}
+.grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);background-size:40px 40px;-webkit-mask-image:linear-gradient(90deg,#000 0,transparent 80%)}
+.mark{position:absolute;left:96px;top:92px;width:104px;height:104px}
+h1{position:absolute;left:96px;top:236px;font-size:70px;font-weight:800;letter-spacing:3px;line-height:1;white-space:nowrap}
+h1 span{color:#e8294a}
+.tag{position:absolute;left:100px;top:332px;font-size:30px;color:#c9c9d3;letter-spacing:.5px}
+.pills{position:absolute;left:100px;top:404px;display:flex;gap:14px}
+.pill{border:1.5px solid rgba(255,255,255,.28);border-radius:999px;padding:9px 22px;font-size:20px;color:#e6e6ee;background:rgba(255,255,255,.05)}
+.kb{transform:scale(.8);transform-origin:right top;position:absolute;right:70px;top:130px;width:560px;height:300px;border-radius:26px;background:#14141a;border:2px solid #2a2a34;box-shadow:0 30px 80px rgba(0,0,0,.6)}
+.scr{position:absolute;left:36px;top:26px;right:36px;height:96px;border-radius:12px;background:radial-gradient(circle at 50% 50%,rgba(232,41,74,.6),#050507 70%)}
+.key{position:absolute;height:22px;border-radius:6px;border:2px solid #0a0a0e}
+.z{position:absolute;top:150px;height:116px;width:122px}
+</style></head><body>
+<div class="glow"></div><div class="glow2"></div><div class="grid"></div>
+<svg class="mark" viewBox="0 0 100 100"><polygon points="50,4 96,50 50,96 4,50" fill="none" stroke="#e8294a" stroke-width="7"/><polygon points="50,30 70,50 50,70 30,50" fill="#e8294a"/></svg>
+<h1>OMEN <span>CONTROL</span> CENTRE</h1>
+<div class="tag">A native Linux control app for HP Omen laptops</div>
+<div class="pills"><div class="pill">GTK 4 + libadwaita</div><div class="pill">Fedora</div><div class="pill">4-zone RGB</div><div class="pill">polkit-gated writes</div></div>
+<div class="kb"><div class="scr"></div><div id="keys"></div></div>
+<script>
+const cols=['#ff2a4d','#ffb020','#2ee6a6','#3d7bff'];const k=document.getElementById('keys');
+for(let z=0;z<4;z++){for(let r=0;r<5;r++){for(let c=0;c<4;c++){const d=document.createElement('div');d.className='key';
+d.style.left=(30+z*122+c*30)+'px';d.style.top=(146+r*28)+'px';d.style.width='26px';d.style.background=cols[z];d.style.boxShadow='0 0 14px '+cols[z]+'99';k.appendChild(d)}}}
+</script></body></html>
