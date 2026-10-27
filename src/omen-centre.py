@@ -1298,8 +1298,9 @@ class OmenWindow(Adw.ApplicationWindow):
 
         grow = Adw.ActionRow(
             title="Gradient config",
-            subtitle='Applies in Gradient mode. Format: '
-                     '"0,1,2:FF0000,00FF00;3:800080"')
+            subtitle='Used in Gradient mode. Format: '
+                     '"0,1,2:FF0000,00FF00;3:800080". Staged like the '
+                     'other lighting changes - the footer Apply writes it.')
         self.gradient_entry = Gtk.Entry()
         self.gradient_entry.set_placeholder_text(
             "0,1,2:FF0000,00FF00;3:800080")
@@ -1308,7 +1309,9 @@ class OmenWindow(Adw.ApplicationWindow):
             self.gradient_entry.set_text(saved)
         self.gradient_entry.set_width_chars(26)
         self.gradient_entry.set_valign(Gtk.Align.CENTER)
-        gbtn = Gtk.Button(label="Apply")
+        gbtn = Gtk.Button(label="Stage")
+        gbtn.set_tooltip_text(
+            "Stages this gradient config; the footer Apply writes it")
         gbtn.set_valign(Gtk.Align.CENTER)
         gbtn.connect("clicked", self._on_gradient)
         grow.add_suffix(self.gradient_entry)
@@ -1320,7 +1323,7 @@ class OmenWindow(Adw.ApplicationWindow):
         self._ls_stack.add_titled(effects_page, "effects", "Effects")
         _t = os.environ.get("OMEN_LS_TAB")
         if _t in ("layout", "effects"):
-            self._ls_stack.set_visible_child_name(_t)
+            self._ls_tab_btns[_t].set_active(True)
 
         # ---------------- software compositor (preview only) ----------------
         self._ls_comp = le.Compositor(
