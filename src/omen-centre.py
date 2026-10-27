@@ -121,6 +121,35 @@ def save_theme_pref(value):
 
 
 
+ART_URL = "https://cdn.cloudflare.steamstatic.com/steam/apps/%s/header.jpg"
+ART_CACHE = os.environ.get(
+    "OMEN_ART_CACHE",
+    os.path.expanduser("~/.cache/omen-centre/art"))
+
+
+def fetch_art(appid, done):
+    """Download (or read cache) the capsule art, then call done(path)."""
+    import threading
+    import urllib.request
+
+    def work():
+        os.makedirs(ART_CACHE, exist_ok=True)
+        path = os.path.join(ART_CACHE, "%s.jpg" % appid)
+        if not os.path.exists(path):
+            try:
+                with urllib.request.urlopen(ART_URL % appid,
+                                            timeout=15) as resp:
+                    data = resp.read(2 * 1024 * 1024)
+                with open(path, "wb") as fh:
+                    fh.write(data)
+            except Exception:
+                GLib.idle_add(done, None)
+                return
+        GLib.idle_add(done, path)
+
+    threading.Thread(target=work, daemon=True).start()
+
+
 class Gauge(Gtk.DrawingArea):
     """OGH-style circular utilization gauge."""
 
@@ -788,9 +817,10 @@ class OmenWindow(Adw.ApplicationWindow):
 
         self.kb_preview = KeyboardPreview(self._on_preview_zone)
         prow = Adw.ActionRow(
-            title="Keyboard",
-            subtitle="Stylized preview - use Identify for the real "
-                     "zone-to-side mapping on your unit")
+            title="Keyboard zones",
+            subtitle="Four zone bands in LOGICAL order (Z0-Z3), not a "
+                     "physical layout. On this unit Z0 lit the right/"
+                     "numpad side - use Identify for your mapping.")
         prow.set_child(self.kb_preview)
         grp.add(prow)
 
@@ -1403,14 +1433,42 @@ class OmenWindow(Adw.ApplicationWindow):
             grp.add(Adw.ActionRow(
                 title="No installed Steam games found",
                 subtitle="Games you install in Steam appear here"))
+        flow = Gtk.FlowBox()
+        flow.set_max_children_per_line(4)
+        flow.set_min_children_per_line(2)
+        flow.set_row_spacing(10)
+        flow.set_column_spacing(10)
+        flow.set_selection_mode(Gtk.SelectionMode.NONE)
+        flow.set_homogeneous(True)
         for game in games[:50]:
-            row = Adw.ActionRow(title=game["name"],
-                                subtitle="AppID %s" % game["appid"])
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            card.add_css_class("card")
+            card.set_margin_top(6)
+            card.set_margin_bottom(6)
+            card.set_margin_start(6)
+            card.set_margin_end(6)
+            pic = Gtk.Picture()
+            pic.set_size_request(-1, 100)
+            pic.set_keep_aspect_ratio(True)
+            pic.set_can_shrink(True)
+            card.append(pic)
+            name = Gtk.Label(label=game["name"], wrap=True)
+            name.add_css_class("caption")
+            card.append(name)
             btn = Gtk.Button(label="Launch")
-            btn.set_valign(Gtk.Align.CENTER)
             btn.connect("clicked", self._on_launch_game, game["appid"])
-            row.add_suffix(btn)
-            grp.add(row)
+            card.append(btn)
+
+            def set_art(path, pic=pic, card=card):
+                if path:
+                    pic.set_filename(path)
+                return False
+
+            fetch_art(game["appid"], set_art)
+            flow.append(card)
+        grow = Adw.ActionRow()
+        grow.set_child(flow)
+        grp.add(grow)
 
     def _on_launch_game(self, _b, appid):
         if not games_backend:
