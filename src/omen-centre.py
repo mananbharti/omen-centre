@@ -83,6 +83,8 @@ RAIL_CSS = b"""
   background-color: alpha(@card_bg_color, 0.8); }
 .swatch { border-radius: 6px; min-width: 28px; min-height: 28px;
   padding: 0; }
+.apply-footer { background-color: #1c1c26; padding: 8px 16px;
+  border-top: 1px solid #2c2c3a; }
 """
 
 
@@ -734,8 +736,9 @@ class OmenWindow(Adw.ApplicationWindow):
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.toasts = Adw.ToastOverlay()
-        self.toasts.set_child(outer)
-        self.set_content(self.toasts)
+        self.toasts.set_vexpand(True)
+        outer.append(self.toasts)
+        self.set_content(outer)
 
         if not be.driver_present():
             status = Adw.StatusPage(
@@ -743,11 +746,18 @@ class OmenWindow(Adw.ApplicationWindow):
                 description="The omen-rgb-keyboard kernel module is not "
                             "loaded. Load it and restart this app.",
                 icon_name="dialog-error-symbolic")
-            outer.append(status)
+            self.toasts.set_child(status)
             return
 
         body = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        outer.append(body)
+        self.toasts.set_child(body)
+
+        # fixed footer for staged lighting writes; sits below the toast
+        # overlay so toasts never cover the buttons
+        self._footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self._footer.add_css_class("apply-footer")
+        self._footer.set_visible(False)
+        outer.append(self._footer)
 
         # ---- OGH-style left rail ----
         rail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -939,9 +949,9 @@ class OmenWindow(Adw.ApplicationWindow):
         self._lighting_dirty(True)
 
     def _lighting_dirty(self, dirty=True):
-        bar = getattr(self, "_apply_bar", None)
-        if bar is not None:
-            bar.set_visible(dirty)
+        footer = getattr(self, "_footer", None)
+        if footer is not None:
+            footer.set_visible(dirty)
 
     def _on_discard(self, _b):
         self._staged_writes = {}
@@ -1312,8 +1322,7 @@ class OmenWindow(Adw.ApplicationWindow):
 
         self._apply_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
                                   spacing=8)
-        self._apply_bar.set_margin_top(6)
-        self._apply_bar.set_visible(False)
+        self._apply_bar.set_hexpand(True)
         restore = Gtk.Button(label="Restore defaults")
         restore.connect("clicked", self._on_restore_defaults)
         discard = Gtk.Button(label="Discard changes")
@@ -1327,9 +1336,7 @@ class OmenWindow(Adw.ApplicationWindow):
         self._apply_bar.append(sp)
         self._apply_bar.append(discard)
         self._apply_bar.append(applyb)
-        barrow = Adw.ActionRow()
-        barrow.set_child(self._apply_bar)
-        ctrl.add(barrow)
+        self._footer.append(self._apply_bar)
 
     def _ls_zoom(self, delta, reset=False):
         z = 1.0 if reset else self.kb_preview.zoom + delta
