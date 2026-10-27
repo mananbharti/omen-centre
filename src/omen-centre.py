@@ -930,8 +930,27 @@ class OmenWindow(Adw.ApplicationWindow):
             self._apply("fan/thermal_profile", profile)
             back_max = be.read("fan/max_fan")
             back_profile = be.read("fan/thermal_profile")
+            # Readback proves the preset was ACCEPTED, not that fans
+            # recovered. RPM is the observable fan state: report it
+            # separately, without claiming cooling or recovery.
+            cpu_rpm, gpu_rpm = be.read_rpm()
+            rpm_s = None
+            if cpu_rpm is not None and gpu_rpm is not None:
+                rpm_s = "fans read %d/%d RPM" % (cpu_rpm, gpu_rpm)
             if back_max == "0" and back_profile == profile:
-                self._toast("AUTO restored (%s profile)" % profile)
+                if rpm_s is not None:
+                    if cpu_rpm == 0 and gpu_rpm == 0:
+                        self._toast(
+                            "AUTO accepted (%s profile) but fans read "
+                            "0/0 RPM - watch temps" % profile)
+                    else:
+                        self._toast(
+                            "AUTO accepted (%s profile), %s"
+                            % (profile, rpm_s))
+                else:
+                    self._toast(
+                        "AUTO accepted (%s profile); fan RPM not "
+                        "readable here" % profile)
             else:
                 self._toast("AUTO restore uncertain: max_fan=%r "
                             "profile=%r - check fans" % (
@@ -1136,11 +1155,39 @@ class OmenWindow(Adw.ApplicationWindow):
             subtitle="The driver is designed to save lighting and fan "
                      "settings and restore them at boot (not yet "
                      "verified on this machine)"))
-        grp.add(Adw.ActionRow(
-            title="Not available from Linux",
-            subtitle="Network Booster; overclocking/undervolting (no "
-                     "Linux driver path, no BIOS controls on this "
-                     "model); GPU MUX switching (BIOS-only here)"))
+        mgrp = Adw.PreferencesGroup(
+            title="OMEN Gaming Hub equivalents",
+            description="How this app's coverage maps to the Windows "
+                        "OMEN Gaming Hub feature set")
+        page.add(mgrp)
+        mgrp.add(Adw.ActionRow(
+            title="Covered by this app",
+            subtitle="Keyboard lighting, fan and thermal control, "
+                     "system vitals, game library, Omen-key shortcut"))
+        mgrp.add(Adw.ActionRow(
+            title="Covered by native Fedora tools",
+            subtitle="Macros and key remapping: input-remapper. "
+                     "In-game FPS overlay: MangoHud. Per-game "
+                     "performance boost: GameMode. All in Fedora's "
+                     "repos (dnf install)."))
+        mgrp.add(Adw.ActionRow(
+            title="Possible natively, not yet implemented here",
+            subtitle="Per-app network prioritization (Linux cgroup "
+                     "v2 + nftables/tc can do it; HP's own Network "
+                     "Booster implementation is Windows-only). "
+                     "Light Studio-style custom effect canvas."))
+        mgrp.add(Adw.ActionRow(
+            title="Not available on this hardware",
+            subtitle="OMEN AI, Shop Games, Deals, Gallery (HP cloud "
+                     "and storefront services). GPU display-mode (MUX) "
+                     "switching is BIOS-only on this model."))
+        mgrp.add(Adw.ActionRow(
+            title="Unverified on this unit",
+            subtitle="Overclocking/undervolting: Intel HX chips are "
+                     "unlocked, but HP notebook BIOSes usually lock "
+                     "voltage control; OGH itself offers no "
+                     "overclocking on this notebook class. Needs a "
+                     "device check before any claims."))
 
     def _on_theme(self, row, _p):
         theme = ("auto", "light", "dark")[row.get_selected()]

@@ -9,14 +9,20 @@ Workstation install. Follows the system light/dark style.
 
 ## Design reference
 
-The layout mirrors Windows OMEN Gaming Hub per HP's official documentation
-(support.hp.com doc ish_3912817-3737596-16): left navigation rail, Home
-dashboard with live vitals, Performance Control (power modes + Thermal
-Control AUTO/MAX/MANUAL), Lighting (static per-zone + animations),
-System Vitals, My Games, Key assignments. This is a doc-guided
-re-implementation for the Linux driver, not a copy of the Windows
-binary. Silent maps to the driver's silent preset (roughly OMEN's ECO,
-without its display/turbo caps).
+The layout mirrors Windows OMEN Gaming Hub (OGH), studied from HP's
+official documentation (support.hp.com doc ish_3912817-3737596-16), the
+70 official OGH UI screenshots HP hosts on kaas.hpcloud.hp.com for that
+doc, and the current Microsoft Store listing screenshots for OGH
+(Store product 9NQDW009T0T5, official displaycatalog API): left
+navigation rail, Home dashboard with live vitals, Performance Control
+(Comfort/Default/Performance mode cards + Fan Speed AUTO/MAX/MANUAL),
+Lighting with a staged Restore/Discard/Apply workflow and basic color
+swatches, System Vitals with Top Processes, My Games, Key assignments.
+This is a screenshot/document-guided re-implementation for the Linux
+driver - the Windows binary itself has not been inspected. The app's
+Comfort maps to the driver's silent preset, Default to normal,
+Performance to performance (roughly OMEN's ECO/Balanced/Performance,
+without HP's display/turbo caps).
 
 ## Features
 
@@ -35,19 +41,42 @@ without its display/turbo caps).
 - Max fan toggle
 - Thermal profiles: Silent / Normal / Performance (same presets as the
   GNOME power menu via power-profiles-daemon)
-- CPU power limits PL1/PL2 (watts), with restore-defaults
+- CPU power limits PL1/PL2: read-only display (no model-safe write
+  range is published for this laptop, so writes stay off)
 - Custom fan curve editor (2-8 points) - shown only when the laptop's fan
   interface supports it; classic-interface models get an honest
   "not supported on this model" note instead of a dead control
 
 **Vitals**
 - CPU package temperature, GPU temperature (when the GPU driver exposes it),
-  CPU load, memory usage
+  CPU load, memory, storage, network throughput, top processes by CPU
 
-**Not available from Linux on this machine** (named in-app, no fake toggles):
-Network Booster, overclocking/undervolting, GPU display mode (MUX) switching.
-**Not yet implemented:** game library, in-app Omen-key shortcut binding
-(bindable today in GNOME Settings > Keyboard > Custom Shortcuts).
+**My Games**
+- Scans Steam libraries (libraryfolders.vdf + appmanifests) and lists
+  installed games with a Launch button (steam://rungameid)
+
+**Settings**
+- Theme: Auto / Light / Dark (persisted; Dark is the OGH-true default)
+- Omen-key binding: opens this app via a GNOME custom shortcut
+  (XF86DOS), user-session, reversible
+
+## OMEN Gaming Hub capability matrix
+
+Grounded classification (sources: HP doc above, Microsoft Store listing,
+Fedora package sources). HP's proprietary implementations are
+Windows-only, but most OGH *functionality* has native Linux paths:
+
+| OGH feature | Status here |
+| --- | --- |
+| Lighting, fans, vitals, games, Omen key | In this app |
+| Macros / key remapping | Native tool: input-remapper (Fedora repo) |
+| In-game FPS overlay | Native tool: MangoHud (Fedora repo) |
+| Per-game performance boost | Native tool: GameMode (Fedora repo) |
+| Network Booster (per-app priority) | Possible natively (cgroup v2 + nftables/tc); not yet implemented; HP's own impl is Windows-only |
+| Light Studio (custom effect canvas) | Not yet implemented; basic animations covered |
+| OMEN AI, Shop Games, Deals, Gallery | HP cloud/storefront services - not applicable to a local control app |
+| GPU MUX / display mode | BIOS-only on this model |
+| Overclocking/undervolting | Intel HX is an unlocked SKU, but HP notebook BIOSes usually lock voltage control and OGH offers no OC on this notebook class; unverified on this unit |
 
 ## Security model
 
