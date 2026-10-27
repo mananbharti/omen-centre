@@ -532,10 +532,7 @@ class LightCanvas(Gtk.DrawingArea):
         self._rounded(cr, scr_x + 6, scr_y + 6, scr_w - 12, scr_h - 12, 5)
         cr.fill()
         # red diamond accent on screen (generic stylized mark) with glow
-        dxc, dyc, dr = cx, scr_y + scr_h / 2.0, min(16.0, scr_h * 0.22)
-        cr.set_source_rgba(0.85, 0.15, 0.25, 0.08)
-        cr.arc(dxc, dyc, dr * 2.0, 0, 6.2832)
-        cr.fill()
+        dxc, dyc, dr = cx, scr_y + scr_h / 2.0, min(9.0, scr_h * 0.12)
         cr.set_source_rgba(0.85, 0.15, 0.25, 0.6)
         cr.move_to(dxc, dyc - dr)
         cr.line_to(dxc + dr, dyc)
