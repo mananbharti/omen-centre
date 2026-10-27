@@ -1034,8 +1034,10 @@ class OmenWindow(Adw.ApplicationWindow):
             try:
                 be.set_value(rel, value)
             except be.BackendError as exc:
-                self.toasts.add_toast(
-                    Adw.Toast(title="Failed: %s" % exc))
+                ro = os.environ.get("OMEN_READ_ONLY") == "1"
+                if not ro or not failed:
+                    self.toasts.add_toast(Adw.Toast(
+                        title=str(exc) if ro else "Failed: %s" % exc))
                 failed = True
         self._staged_writes = {}
         self._lighting_dirty(False)
