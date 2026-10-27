@@ -128,7 +128,39 @@ def read_gpu_temp_mc():
                 return int(fh.read().strip())
         except (OSError, ValueError):
             continue
-    return None
+    return _read_nvidia_smi_mc()
+
+
+_NV_CACHE = [0.0, None]
+
+
+def _read_nvidia_smi_mc():
+    """GPU temp via nvidia-smi, only when the proprietary driver is loaded.
+
+    The proprietary NVIDIA driver exposes no hwmon temperature. Cached for
+    10 s so the dashboard poll does not hammer the GPU; querying can wake a
+    runtime-suspended dGPU on hybrid laptops, so it is skipped when the
+    driver module is not loaded.
+    """
+    import shutil
+    import time
+    if not os.path.exists("/proc/driver/nvidia/version"):
+        return None
+    exe = shutil.which("nvidia-smi")
+    if not exe:
+        return None
+    now = time.monotonic()
+    if now - _NV_CACHE[0] < 10.0:
+        return _NV_CACHE[1]
+    _NV_CACHE[0] = now
+    try:
+        out = subprocess.run(
+            [exe, "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=3).stdout.strip()
+        _NV_CACHE[1] = int(out.splitlines()[0]) * 1000
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        _NV_CACHE[1] = None
+    return _NV_CACHE[1]
 
 
 class _LoadSampler:

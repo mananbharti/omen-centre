@@ -94,6 +94,8 @@ RAIL_CSS = b"""
   background-color: alpha(@card_bg_color, 0.8); }
 .swatch { border-radius: 6px; min-width: 28px; min-height: 28px;
   padding: 0; }
+.omen-header { background-color: #050507; min-height: 34px; }
+.omen-header-title { color: #b9b9c6; font-size: 12px; font-weight: 600; }
 .readonly-banner { background-color: #5a4a12; color: #ffe9a8;
   padding: 6px 14px; font-weight: 600; }
 .apply-footer { background-color: #1c1c26; padding: 8px 16px;
@@ -777,6 +779,15 @@ class OmenWindow(Adw.ApplicationWindow):
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.toasts = Adw.ToastOverlay()
         self.toasts.set_vexpand(True)
+        # native window chrome: slim header bar so minimize/maximize/close
+        # follow the system button layout like every other window
+        hb = Adw.HeaderBar()
+        hb.add_css_class("flat")
+        hb.add_css_class("omen-header")
+        hb_title = Gtk.Label(label="OMEN Control Centre")
+        hb_title.add_css_class("omen-header-title")
+        hb.set_title_widget(hb_title)
+        outer.append(hb)
         if os.environ.get("OMEN_READ_ONLY") == "1":
             ro = Gtk.Label(
                 label="Read-only mode: readings only. Apply, Restore and "
