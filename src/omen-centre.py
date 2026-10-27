@@ -847,7 +847,7 @@ class OmenWindow(Adw.ApplicationWindow):
     def _toast(self, text):
         self.toasts.add_toast(Adw.Toast(title=text))
 
-    def _page(self, name, maxw=640):
+    def _page(self, name, maxw=920):
         # Adw.PreferencesPage scrolls internally; wrapping it in another
         # ScrolledWindow double-scrolls and breaks pointer hit-testing on
         # content below the fold (rendered position != picked position).
@@ -1157,10 +1157,16 @@ class OmenWindow(Adw.ApplicationWindow):
         plab.add_css_class("dim-label")
         plab.add_css_class("caption")
         rpanel.append(plab)
-        allcur = (be.read("rgb_zones/all") or "FFFFFF").upper()
+        zones = [(be.read("rgb_zones/zone0%d" % i) or "").upper()
+                 for i in range(4)]
+        if all(len(z) == 6 for z in zones) and len(set(zones)) == 1:
+            allcur = zones[0]
+        else:
+            allcur = (be.read("rgb_zones/all") or "FFFFFF").upper()
         if len(allcur) != 6:
             allcur = "FFFFFF"
         ab = Gtk.Button()
+        ab.add_css_class("swatch")
         ab.add_css_class("pcolor-swatch")
         ab.set_halign(Gtk.Align.START)
         self._paint_button(ab, allcur)
