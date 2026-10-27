@@ -25,17 +25,12 @@ previous one worked and you are inside the new backup folder.
 The two hashes must be equal. If any line prints nothing or an error, stop and
 send the output; do not carry on.
 
-## 2b. Check the saved state agrees with the keyboard (read-only)
+## 2b. Version evidence (read-only, optional)
 
-The driver rewrites all four zones from its own memory on any zone write, and
-that memory is loaded from the state file. If the file disagrees with what the
-keyboard shows, an Apply could change zones you did not touch. This decodes the
-backup copy only:
+    ( cd ~/omen-rgb-keyboard && git log -1 --format='src %h %cs' ); modinfo omen_rgb_keyboard | grep -E '^(filename|version|srcversion)'; dkms status
 
-    python3 ~/Downloads/omen-centre/tools/decode_state.py "$D/state"
-
-If it ends "saved colours match the keyboard", continue. If it says DIFFERENT,
-stop and send the output; no Apply until we agree what to do.
+Evidence only. Matching source and version does not prove the loaded module or
+its in-memory colours equal the files on disk.
 
 ## What the driver does on a zone write (read from the driver source)
 
@@ -54,7 +49,7 @@ src/state/omen_state.c (current default branch, read 14:16).
   edits it.
 - Every zone write first calls animation_stop(), which rewrites ALL FOUR zones
   to the keyboard from the driver's in-memory colours (loaded from the state
-  file at module load, see step 2b), then writes the target zone. So a write
+  file at module load), then writes the target zone. So a write
   to Z0 can also rewrite Z1-Z3. The installed module version is not confirmed;
   this is the current default branch.
 
