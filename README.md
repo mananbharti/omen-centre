@@ -180,3 +180,12 @@ writes them to the zones through WMI. The keyboard therefore receives
 repeated color updates while the laptop is awake. Not validated on
 hardware: behavior across sleep, WMI traffic cost, and visual match with
 the in-app preview.
+
+## Safe read-only launch (no install)
+
+    OMEN_READ_ONLY=1 python3 src/omen-centre.py
+
+or `./run-readonly.sh`. Reads sysfs only. Every write attempt (Apply, Stage
+then Apply, fan/performance changes) is refused with a toast and nothing is
+sent to pkexec or the driver. Requires python3-gobject, gtk4 and libadwaita
+(present on Fedora Workstation).

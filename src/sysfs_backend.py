@@ -59,6 +59,9 @@ def set_value(rel, value):
 
     Raises BackendError with a human-readable reason on failure.
     """
+    if os.environ.get("OMEN_READ_ONLY") == "1":
+        raise BackendError("Read-only mode (OMEN_READ_ONLY=1): "
+                           "nothing was written.")
     if DIRECT_WRITE:
         cmd = ["python3", OMENCTL, "set", rel, str(value)]
         env = dict(os.environ, OMEN_SYSFS_ROOT=SYSFS_ROOT)
