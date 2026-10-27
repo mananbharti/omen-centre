@@ -13,6 +13,7 @@ GUI runs unprivileged; writes are validated and applied by the root
 helper `omenctl` through pkexec (admin authentication per polkit policy).
 """
 import os
+import re
 import subprocess
 import time
 import shutil
@@ -229,8 +230,19 @@ class SimpleDialog(Gtk.Window):
             row.append(btn)
         box.append(row)
         self.set_child(box)
+        self._responded = False
+        self._callback = callback
+        self.connect("close-request", self._on_close)
+
+    def _on_close(self, _w):
+        # Window X / Escape counts as the "cancel"-like answer.
+        if not self._responded:
+            self._responded = True
+            self._callback(self, "close")
+        return False
 
     def _done(self, _b, rid, callback):
+        self._responded = True
         self.close()
         callback(self, rid)
 
@@ -819,7 +831,7 @@ class OmenWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app)
         self.set_title("Omen Control Centre")
-        self.set_default_size(860, 620)
+        self.set_default_size(1120, 760)
         self._loading = True
 
         provider = Gtk.CssProvider()
@@ -916,6 +928,7 @@ class OmenWindow(Adw.ApplicationWindow):
             self._restrict_fan_ui()
 
         self._loading = False
+        GLib.idle_add(self._check_identify_pending)
         start = os.environ.get("OMEN_START_PAGE", "home")
         if start in self.nav_buttons:
             self.nav_buttons[start].set_active(True)
@@ -1826,8 +1839,9 @@ class OmenWindow(Adw.ApplicationWindow):
             self, "Identify zones",
             "This writes four colours to the keyboard (zone 0 red, "
             "1 green, 2 blue, 3 white) and asks for your password if "
-            "needed. Your current zone colours are saved first and "
-            "put back afterwards.",
+            "needed. Your current zone colours are saved first and the app "
+            "tries to put them back afterwards. If that does not "
+            "complete, the app offers to restore them next start.",
             [("cancel", "Cancel"), ("go", "Light the zones")],
             self._on_identify_confirm, suggested="go").present()
 
@@ -1840,6 +1854,7 @@ class OmenWindow(Adw.ApplicationWindow):
             self._toast("Could not read current zone colours; nothing "
                         "was written")
             return
+        save_pref("identify_pending", ",".join(self._ident_prev))
         for z, (_n, c) in enumerate(self.IDENT_COLORS):
             if not self._ident_write(z, c):
                 self._ident_restore()
@@ -1884,7 +1899,34 @@ class OmenWindow(Adw.ApplicationWindow):
         for z, c in enumerate(getattr(self, "_ident_prev", [])):
             if c and not self._ident_write(z, c):
                 ok = False
+        if ok:
+            save_pref("identify_pending", "")
         return ok
+
+    def _check_identify_pending(self):
+        """Offer recovery if a previous Identify did not finish restoring."""
+        raw = load_pref("identify_pending") or ""
+        vals = [v.lstrip("#") for v in raw.split(",")]
+        if len(vals) != 4 or not all(re.fullmatch(r"[0-9A-Fa-f]{6}", v)
+                                     for v in vals):
+            return False
+        if os.environ.get("OMEN_READ_ONLY") == "1":
+            return False
+        self._ident_prev = vals
+
+        def answer(_d, rid):
+            if rid == "restore":
+                msg = ("Previous colours restored" if self._ident_restore()
+                       else "Restore failed - try again or set colours by hand")
+                self._reload_lighting_ui()
+                self._toast(msg)
+        SimpleDialog(
+            self, "Finish restoring zone colours?",
+            "An earlier Identify may not have put your zone colours back. "
+            "Saved colours: " + ", ".join("#" + v for v in vals) + ".",
+            [("keep", "Keep current"), ("restore", "Restore saved colours")],
+            answer, suggested="restore").present()
+        return False
 
     def _on_identify_answer(self, _dlg, response):
         order = [dd.get_selected() for dd in self._ident_dd]
@@ -1901,7 +1943,8 @@ class OmenWindow(Adw.ApplicationWindow):
                 msg = ("Each colour must be used once; order not saved. "
                        "Previous colours restored")
         if not self._ident_restore():
-            msg = "Restore of previous colours failed - check the keyboard"
+            msg = ("Restore did not complete. Saved colours are kept; the "
+                   "app will offer to restore them on next start")
         self._reload_lighting_ui()
         self._toast(msg)
 
