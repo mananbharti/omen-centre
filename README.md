@@ -45,7 +45,7 @@ without HP's display/turbo caps).
   canvas preview
 - Layers are NOT streamed to the keyboard. Per the driver source
   (OmenLinux/omen-rgb-keyboard): every zone sysfs write force-stops the
-  firmware animation (restoring all 4 zones) and does a synchronous state
+  driver software animation (restoring all 4 zones) and does a synchronous state
   save to /var/lib/omen-rgb-keyboard/state, so sustained userspace
   streaming would mean ~5x WMI traffic plus dozens of disk writes per
   second. Hardware-rate tolerance of the interface is also not validated.
@@ -170,3 +170,13 @@ persistence across reboot, cooling response under sustained load.
 ## License
 
 GPL-3.0 (matching the kernel driver).
+
+## Effects are driver-side software animations
+
+The driver's 12 animation modes are not rendered by keyboard firmware. Per
+src/animations/omen_animations.c (OmenLinux/omen-rgb-keyboard), a kernel
+timer queues a workqueue function that computes colors each tick and
+writes them to the zones through WMI. The keyboard therefore receives
+repeated color updates while the laptop is awake. Not validated on
+hardware: behavior across sleep, WMI traffic cost, and visual match with
+the in-app preview.

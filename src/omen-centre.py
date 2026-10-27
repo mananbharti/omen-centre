@@ -60,7 +60,7 @@ EFFECTS = [
 
 # Driver effect -> closest software-preview layer type. Chase, Aurora,
 # Disco and Spectrum are approximated by the nearest supported layer;
-# the firmware renders its own animation regardless.
+# the driver animates in software (kernel timer + workqueue) regardless.
 EFFECT_PREVIEW = {
     "static": "static", "breathing": "breathing", "rainbow": "rainbow",
     "wave": "wave", "pulse": "pulse", "chase": "wave",
@@ -1285,8 +1285,9 @@ class OmenWindow(Adw.ApplicationWindow):
 
         pcap = Gtk.Label(
             label="Preview - software approximation; the keyboard\'s "
-                  "firmware renders its own animation of the selected "
-                  "effect.")
+                  "driver animates the selected effect in software by "
+                  "sending color updates to the keyboard repeatedly "
+                  "while the laptop is awake.")
         pcap.add_css_class("dim-label")
         pcap.add_css_class("caption")
         pcap.set_halign(Gtk.Align.START)
@@ -2237,7 +2238,7 @@ class OmenWindow(Adw.ApplicationWindow):
             subtitle="Light Studio-style multi-layer compositing runs "
                      "live on the canvas preview. Not streamed to the "
                      "keyboard: per the driver source, every zone write "
-                     "force-stops the firmware animation and does a "
+                     "force-stops the driver animation and does a "
                      "synchronous state save to disk, and sustained "
                      "hardware write-rate tolerance is not validated. "
                      "Use 'Stage static snapshot' for a static 4-zone "
