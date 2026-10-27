@@ -14,6 +14,7 @@ helper `omenctl` through pkexec (admin authentication per polkit policy).
 """
 import os
 import subprocess
+import shutil
 import sys
 
 import gi
@@ -84,24 +85,108 @@ RAIL_CSS = b"""
 """
 
 
-def load_theme_pref():
+def load_pref(key, default=None):
     try:
         with open(CONFIG_PATH) as fh:
             for line in fh:
-                if line.startswith("theme="):
+                if line.startswith(key + "="):
                     return line.strip().split("=", 1)[1]
     except OSError:
         pass
-    return "dark"
+    return default
 
 
-def save_theme_pref(value):
+def save_pref(key, value):
+    lines = []
+    try:
+        with open(CONFIG_PATH) as fh:
+            lines = [l for l in fh if not l.startswith(key + "=")]
+    except OSError:
+        pass
     try:
         os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
         with open(CONFIG_PATH, "w") as fh:
-            fh.write("theme=%s\n" % value)
+            fh.writelines(lines)
+            fh.write("%s=%s\n" % (key, value))
     except OSError:
         pass
+
+
+def load_theme_pref():
+    return load_pref("theme", "dark")
+
+
+def save_theme_pref(value):
+    save_pref("theme", value)
+
+
+
+class Gauge(Gtk.DrawingArea):
+    """OGH-style circular utilization gauge."""
+
+    def __init__(self):
+        super().__init__()
+        self._fraction = 0.0
+        self._text = "-"
+        self.set_content_width(120)
+        self.set_content_height(120)
+        self.set_draw_func(self._draw)
+
+    def set_value(self, fraction, text):
+        self._fraction = max(0.0, min(1.0, fraction))
+        self._text = text
+        self.queue_draw()
+
+    def _draw(self, area, cr, w, h):
+        import math
+        cx, cy = w / 2.0, h / 2.0
+        r = min(w, h) / 2.0 - 8.0
+        # track
+        cr.set_source_rgba(0.5, 0.5, 0.55, 0.25)
+        cr.set_line_width(7.0)
+        cr.arc(cx, cy, r, 0, 2 * math.pi)
+        cr.stroke()
+        # value arc (from top, clockwise)
+        if self._fraction > 0:
+            cr.set_source_rgba(0.66, 0.44, 0.84, 0.9)
+            cr.arc(cx, cy, r, -math.pi / 2,
+                   -math.pi / 2 + 2 * math.pi * self._fraction)
+            cr.stroke()
+        # center text
+        cr.set_source_rgba(0.93, 0.93, 0.94, 1.0)
+        cr.select_font_face("Sans")
+        cr.set_font_size(20)
+        (xb, yb, tw, th) = cr.text_extents(self._text)[:4]
+        cr.move_to(cx - tw / 2.0 - xb, cy + th / 2.0)
+        cr.show_text(self._text)
+
+
+def gauge_card(title):
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+    box.add_css_class("card")
+    box.set_margin_top(4)
+    box.set_margin_bottom(4)
+    box.set_margin_start(4)
+    box.set_margin_end(4)
+    t = Gtk.Label(label=title)
+    t.add_css_class("caption")
+    g = Gauge()
+    sub = Gtk.Label(label="-")
+    sub.add_css_class("caption")
+    box.append(t)
+    box.append(g)
+    box.append(sub)
+    return box, g, sub
+
+
+def fmt_temp(mc):
+    """millidegree-C string honoring the unit preference"""
+    if mc is None:
+        return "n/a"
+    c = mc / 1000.0
+    if load_pref("unit", "C") == "F":
+        return "%.0f°F" % (c * 9.0 / 5.0 + 32.0)
+    return "%.0f°C" % c
 
 
 class ColorPicker(Gtk.Popover):
@@ -979,8 +1064,22 @@ class OmenWindow(Adw.ApplicationWindow):
 
     # ---- System Vitals ----
 
+    def _on_unit(self, row, _p):
+        save_pref("unit", "F" if row.get_selected() == 1 else "C")
+        self._refresh_live()
+
     def _build_vitals(self):
         page = self._page("vitals")
+
+        ugrp = Adw.PreferencesGroup()
+        page.add(ugrp)
+        units = Gtk.StringList()
+        units.append("°C")
+        units.append("°F")
+        urow = Adw.ComboRow(title="Temperature unit", model=units)
+        urow.set_selected(1 if load_pref("unit", "C") == "F" else 0)
+        urow.connect("notify::selected", self._on_unit)
+        ugrp.add(urow)
 
         grp = Adw.PreferencesGroup(title="System Vitals")
         page.add(grp)
@@ -991,13 +1090,14 @@ class OmenWindow(Adw.ApplicationWindow):
         grid.set_margin_bottom(6)
         self.v_cpu_temp = vital_card("CPU TEMP")
         self.v_gpu_temp = vital_card("GPU TEMP")
-        self.v_cpu_load = vital_card("CPU USE")
-        self.v_ram = vital_card("RAM")
+        self.v_cpu_load = gauge_card("CPU")
+        self.v_ram = gauge_card("MEMORY")
         self.v_storage = vital_card("STORAGE USED")
         self.v_net = vital_card("NETWORK")
         cards = [self.v_cpu_temp, self.v_gpu_temp, self.v_cpu_load,
                  self.v_ram, self.v_storage, self.v_net]
-        for idx, (box, _) in enumerate(cards):
+        for idx, item in enumerate(cards):
+            box = item[0]
             box.set_hexpand(True)
             grid.attach(box, idx % 3, idx // 3, 1, 1)
         grp.add(grid)
@@ -1078,7 +1178,9 @@ class OmenWindow(Adw.ApplicationWindow):
         grp = Adw.PreferencesGroup(
             title="My Games",
             description="Installed Steam games on this machine. "
-                        "Launching opens Steam.")
+                        "Launching opens Steam, with GameMode and "
+                        "MangoHud applied automatically when those "
+                        "Fedora packages are installed.")
         page.add(grp)
         games = games_backend.list_games() if games_backend else []
         if not games:
@@ -1095,8 +1197,18 @@ class OmenWindow(Adw.ApplicationWindow):
             grp.add(row)
 
     def _on_launch_game(self, _b, appid):
-        if games_backend:
-            subprocess.Popen(games_backend.launch_command(appid))
+        if not games_backend:
+            return
+        # Native equivalents of OGH's Boost/overlay: run through GameMode
+        # and MangoHud when the user has them installed. Absent tools are
+        # simply skipped - no install prompts, no privilege changes.
+        cmd = list(games_backend.launch_command(appid))
+        if shutil.which("gamemoderun"):
+            cmd = ["gamemoderun"] + cmd
+        env = dict(os.environ)
+        if shutil.which("mangohud"):
+            env["MANGOHUD"] = "1"
+        subprocess.Popen(cmd, env=env)
 
     # ---- Settings ----
 
@@ -1139,9 +1251,12 @@ class OmenWindow(Adw.ApplicationWindow):
 
         ggrp = Adw.PreferencesGroup(
             title="Graphics",
-            description="Hybrid vs discrete GPU display mode is a BIOS "
-                        "setting on this model; no runtime switching "
-                        "from Linux.")
+            description="Running a specific app on the NVIDIA GPU works "
+                        "on Linux via PRIME render offload. Whole-"
+                        "display hybrid/discrete switching is a BIOS "
+                        "option on this model class (exact options on "
+                        "this unit unverified); OGH's Graphics switcher "
+                        "uses the Windows graphics stack.")
         page.add(ggrp)
 
         grp = Adw.PreferencesGroup(title="About")
@@ -1213,10 +1328,8 @@ class OmenWindow(Adw.ApplicationWindow):
     def _refresh_live(self):
         cpu_rpm, gpu_rpm = be.read_rpm()
 
-        ct = be.read_cpu_temp_mc()
-        ct_s = ("%.0f°C" % (ct / 1000.0)) if ct is not None else "n/a"
-        gt = be.read_gpu_temp_mc()
-        gt_s = ("%.0f°C" % (gt / 1000.0)) if gt is not None else "n/a"
+        ct_s = fmt_temp(be.read_cpu_temp_mc())
+        gt_s = fmt_temp(be.read_gpu_temp_mc())
         load = be.read_cpu_load_pct()
         load_s = ("%.0f%%" % load) if load is not None else "-"
         total, used = be.read_mem()
@@ -1242,8 +1355,13 @@ class OmenWindow(Adw.ApplicationWindow):
 
         self.v_cpu_temp[1].set_label(ct_s)
         self.v_gpu_temp[1].set_label(gt_s)
-        self.v_cpu_load[1].set_label(load_s)
-        self.v_ram[1].set_label(ram_s)
+        load_f = (load or 0.0) / 100.0
+        self.v_cpu_load[1].set_value(load_f, load_s)
+        ram_f = (100.0 * used / total / 100.0) if total else 0.0
+        self.v_ram[1].set_value(ram_f, ram_s)
+        self.v_ram[2].set_label(
+            ("%.1f/%.1f GB" % (used / 1e6, total / 1e6)) if total else "-")
+        self.v_cpu_load[2].set_label("Utilization")
         self.v_storage[1].set_label(
             ("%.0f%%" % st) if st is not None else "n/a")
         self.v_net[1].set_label(

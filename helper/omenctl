@@ -11,8 +11,16 @@ import os
 import re
 import sys
 
-SYSFS_ROOT = os.environ.get(
-    "OMEN_SYSFS_ROOT", "/sys/devices/platform/omen-rgb-keyboard")
+DEFAULT_SYSFS_ROOT = "/sys/devices/platform/omen-rgb-keyboard"
+
+# The env override exists for the test harness only. When running
+# privileged (pkexec or direct sudo), ignore the environment entirely and
+# always use the fixed sysfs path: a helper that lets its caller relocate
+# the write root would be a privilege-escalation backdoor.
+if os.geteuid() == 0:
+    SYSFS_ROOT = DEFAULT_SYSFS_ROOT
+else:
+    SYSFS_ROOT = os.environ.get("OMEN_SYSFS_ROOT", DEFAULT_SYSFS_ROOT)
 
 ANIMATION_MODES = {
     "static", "breathing", "rainbow", "wave", "pulse", "chase",
@@ -31,20 +39,6 @@ def is_int_range(v, lo, hi):
     except ValueError:
         return False
     return lo <= n <= hi
-
-
-def is_power_limits(v):
-    if v == "default":
-        return True
-    parts = v.split()
-    if len(parts) != 2:
-        return False
-    try:
-        pl1, pl2 = int(parts[0]), int(parts[1])
-    except ValueError:
-        return False
-    # 0 0 is the driver's own "restore defaults" form; keep a sane ceiling.
-    return 0 <= pl1 <= pl2 <= 200  # ceiling: i7-14650HX max turbo is 157 W (Intel ARK); 200 leaves OEM headroom
 
 
 def is_fan_curve(v):
@@ -103,7 +97,9 @@ VALIDATORS = {
     "rgb_zones/mute_state": is_bool01,
     "fan/max_fan": is_bool01,
     "fan/thermal_profile": lambda v: v in THERMAL_PROFILES,
-    "fan/power_limits": is_power_limits,
+    # fan/power_limits deliberately absent: no model-safe write range is
+    # published for this laptop, so the key stays non-writable (read-only
+    # in the GUI) until one is.
     "fan/fan_curve": is_fan_curve,
     "fan/fan_curve_enable": is_bool01,
     "fan/fan_temp_zone": is_zone_name,
@@ -122,7 +118,11 @@ def main(argv):
     if not validator(value):
         print(f"invalid value for {key}: {value!r}", file=sys.stderr)
         return 2
-    path = os.path.join(SYSFS_ROOT, key)
+    root_real = os.path.realpath(SYSFS_ROOT)
+    path = os.path.realpath(os.path.join(root_real, key))
+    if path != root_real and not path.startswith(root_real + os.sep):
+        print(f"key escapes sysfs root: {key!r}", file=sys.stderr)
+        return 2
     try:
         with open(path, "w") as fh:
             fh.write(value + "\n")

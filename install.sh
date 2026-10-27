@@ -14,7 +14,11 @@ install -m 0644 src/games_backend.py /usr/share/omen-centre/games_backend.py
 install -m 0644 src/omenkey_backend.py /usr/share/omen-centre/omenkey_backend.py
 
 install -d /usr/libexec/omen-centre
-install -o root -g root -m 0755 helper/omenctl /usr/libexec/omen-centre/omenctl
+# stage then rename: the privileged helper lands atomically, root-owned
+install -o root -g root -m 0755 helper/omenctl \
+    /usr/libexec/omen-centre/.omenctl.new
+mv -f /usr/libexec/omen-centre/.omenctl.new \
+    /usr/libexec/omen-centre/omenctl
 
 install -m 0644 polkit/com.mananbharti.omencentre.policy \
     /usr/share/polkit-1/actions/com.mananbharti.omencentre.policy

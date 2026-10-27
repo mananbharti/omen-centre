@@ -41,8 +41,10 @@ without HP's display/turbo caps).
 - Max fan toggle
 - Thermal profiles: Silent / Normal / Performance (same presets as the
   GNOME power menu via power-profiles-daemon)
-- CPU power limits PL1/PL2: read-only display (no model-safe write
-  range is published for this laptop, so writes stay off)
+- CPU power limits PL1/PL2: read-only display. The helper has no
+  writable power-limits key at all: no model-safe range is published
+  for this laptop, so the control stays off everywhere, not just in
+  the GUI
 - Custom fan curve editor (2-8 points) - shown only when the laptop's fan
   interface supports it; classic-interface models get an honest
   "not supported on this model" note instead of a dead control
@@ -75,7 +77,7 @@ Windows-only, but most OGH *functionality* has native Linux paths:
 | Network Booster (per-app priority) | Possible natively (cgroup v2 + nftables/tc); not yet implemented; HP's own impl is Windows-only |
 | Light Studio (custom effect canvas) | Not yet implemented; basic animations covered |
 | OMEN AI, Shop Games, Deals, Gallery | HP cloud/storefront services - not applicable to a local control app |
-| GPU MUX / display mode | BIOS-only on this model |
+| GPU MUX / display mode | Per-app GPU offload works natively (PRIME, wiki.archlinux.org/title/PRIME); whole-display switching is a BIOS option on this model class (unit specifics unverified) |
 | Overclocking/undervolting | Intel HX is an unlocked SKU, but HP notebook BIOSes usually lock voltage control and OGH offers no OC on this notebook class; unverified on this unit |
 
 ## Security model

@@ -11,14 +11,13 @@ import unittest
 
 HELPER = os.path.join(os.path.dirname(__file__), "..", "helper", "omenctl")
 
-# every valid key, to build the mock tree
 KEYS = [
     "rgb_zones/zone00", "rgb_zones/zone01", "rgb_zones/zone02",
     "rgb_zones/zone03", "rgb_zones/all", "rgb_zones/brightness",
     "rgb_zones/animation_mode", "rgb_zones/animation_speed",
     "rgb_zones/gradient_config", "rgb_zones/brightness_lock",
     "rgb_zones/mute_led", "rgb_zones/mute_state",
-    "fan/max_fan", "fan/thermal_profile", "fan/power_limits",
+    "fan/max_fan", "fan/thermal_profile",
     "fan/fan_curve", "fan/fan_curve_enable", "fan/fan_temp_zone",
 ]
 
@@ -41,7 +40,6 @@ class Adversarial(unittest.TestCase):
             os.makedirs(os.path.dirname(p), exist_ok=True)
             with open(p, "w") as fh:
                 fh.write("ORIGINAL\n")
-        # a sentinel outside the helper's tree - must never be touched
         self.sentinel = os.path.join(self.root, "..",
                                      "sentinel-%d" % os.getpid())
         with open(self.sentinel, "w") as fh:
@@ -52,20 +50,23 @@ class Adversarial(unittest.TestCase):
         if os.path.exists(self.sentinel):
             os.unlink(self.sentinel)
 
+    def assert_tree_intact(self):
+        for k in KEYS:
+            p = os.path.join(self.root, k)
+            if os.path.islink(p):
+                continue  # replaced mid-test; that test restores it
+            with open(p) as fh:
+                self.assertEqual(fh.read(), "ORIGINAL\n",
+                                 "attack modified %s" % k)
+        with open(self.sentinel) as fh:
+            self.assertEqual(fh.read(), "UNTOUCHED\n")
+
     def assert_rejected(self, args, env_extra=None):
         r = run_helper(self.root, args, env_extra)
         self.assertEqual(r.returncode, 2,
                          "expected rejection of %r, got rc=%d (%s%s)"
                          % (args, r.returncode, r.stdout, r.stderr))
         self.assert_tree_intact()
-
-    def assert_tree_intact(self):
-        for k in KEYS:
-            with open(os.path.join(self.root, k)) as fh:
-                self.assertEqual(fh.read(), "ORIGINAL\n",
-                                 "attack modified %s" % k)
-        with open(self.sentinel) as fh:
-            self.assertEqual(fh.read(), "UNTOUCHED\n")
 
     # --- key-space attacks ---
     def test_unknown_key(self):
@@ -116,25 +117,25 @@ class Adversarial(unittest.TestCase):
     def test_curve_attacks(self):
         self.assert_rejected(["set", "fan/fan_curve", "30:101 40:50"])
         self.assert_rejected(["set", "fan/fan_curve", "-5:50 40:50"])
-        self.assert_rejected(["set", "fan/fan_curve", "30:50"] * 1)
+        self.assert_rejected(["set", "fan/fan_curve", "30:50"])
         self.assert_rejected(
             ["set", "fan/fan_curve",
-             " ".join("%d:50" % t for t in range(9))])  # >8 points
+             " ".join("%d:50" % t for t in range(9))])
         self.assert_rejected(["set", "fan/fan_curve", "30:50;40:60"])
 
-    def test_power_limit_attacks(self):
-        self.assert_rejected(["set", "fan/power_limits", "55"])
-        self.assert_rejected(["set", "fan/power_limits", "100 50"])
-        self.assert_rejected(["set", "fan/power_limits", "0 201"])
-        self.assert_rejected(["set", "fan/power_limits", "-5 100"])
+    def test_power_limits_key_not_writable(self):
+        # removed from the allowlist until a model-safe range exists;
+        # even a well-formed value must be rejected as an unknown key
+        self.assert_rejected(["set", "fan/power_limits", "55 157"])
+        self.assert_rejected(["set", "fan/power_limits", "default"])
 
     def test_gradient_attacks(self):
         self.assert_rejected(["set", "rgb_zones/gradient_config",
-                              "4:FF0000"])          # zone out of range
+                              "4:FF0000"])
         self.assert_rejected(["set", "rgb_zones/gradient_config",
-                              "0:GGGGGG"])          # bad hex
+                              "0:GGGGGG"])
         self.assert_rejected(["set", "rgb_zones/gradient_config",
-                              "0:FF0000:"])         # dangling colon
+                              "0:FF0000:"])
         self.assert_rejected(["set", "rgb_zones/gradient_config", ""])
 
     def test_case_and_whitespace_padding(self):
@@ -164,17 +165,45 @@ class Adversarial(unittest.TestCase):
                        env_extra={"PYTHONSTARTUP": evil})
         self.assertEqual(r.returncode, 0, r.stderr)
 
-    def test_symlink_root_write_goes_through_only_mock(self):
-        # documents behavior: helper follows a symlinked sysfs node;
-        # in production SYSFS_ROOT is a fixed /sys path (env scrubbed by
-        # pkexec), so this can only matter in the test harness.
-        linkdir = os.path.join(self.root, "linked")
-        os.makedirs(linkdir)
-        target = os.path.join(self.root, "fan", "max_fan")
-        link = os.path.join(linkdir, "max_fan")
-        os.symlink(target, link)
-        # the fixed allowlist has no "linked/max_fan" key:
-        self.assert_rejected(["set", "linked/max_fan", "1"])
+    # --- symlink + root-path defenses ---
+    def test_symlinked_allowlisted_node_rejected(self):
+        # replace an allowlisted node with a symlink escaping the root:
+        # realpath containment must reject the write
+        outside = os.path.join(self.root, "..",
+                               "escape-%d" % os.getpid())
+        with open(outside, "w") as fh:
+            fh.write("UNTOUCHED\n")
+        node = os.path.join(self.root, "fan", "max_fan")
+        os.unlink(node)
+        os.symlink(outside, node)
+        try:
+            r = run_helper(self.root, ["set", "fan/max_fan", "1"])
+            self.assertEqual(r.returncode, 2,
+                             "symlink escape was not rejected")
+            with open(outside) as fh:
+                self.assertEqual(fh.read(), "UNTOUCHED\n")
+        finally:
+            os.unlink(node)
+            with open(node, "w") as fh:
+                fh.write("ORIGINAL\n")
+            os.unlink(outside)
+
+    def test_env_override_ignored_when_root(self):
+        # with geteuid patched to 0 the fixed /sys path must win over
+        # OMEN_SYSFS_ROOT even without pkexec scrubbing the environment
+        import importlib.util
+        import importlib.machinery
+        loader = importlib.machinery.SourceFileLoader("omenctl", HELPER)
+        spec = importlib.util.spec_from_loader("omenctl", loader)
+        mod = importlib.util.module_from_spec(spec)
+        real_geteuid = os.geteuid
+        os.environ["OMEN_SYSFS_ROOT"] = self.root
+        os.geteuid = lambda: 0
+        try:
+            spec.loader.exec_module(mod)
+        finally:
+            os.geteuid = real_geteuid
+        self.assertEqual(mod.SYSFS_ROOT, mod.DEFAULT_SYSFS_ROOT)
 
     # --- happy path ---
     def test_valid_writes(self):

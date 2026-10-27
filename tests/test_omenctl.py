@@ -15,7 +15,7 @@ ALL_KEYS = [
     "rgb_zones/animation_mode", "rgb_zones/animation_speed",
     "rgb_zones/gradient_config", "rgb_zones/brightness_lock",
     "rgb_zones/mute_led", "rgb_zones/mute_state",
-    "fan/max_fan", "fan/thermal_profile", "fan/power_limits",
+    "fan/max_fan", "fan/thermal_profile",
     "fan/fan_curve", "fan/fan_curve_enable", "fan/fan_temp_zone",
 ]
 
@@ -56,9 +56,6 @@ class OmenCtlTest(unittest.TestCase):
             ("fan/max_fan", "1"),
             ("fan/thermal_profile", "performance"),
             ("fan/thermal_profile", "silent"),
-            ("fan/power_limits", "55 157"),
-            ("fan/power_limits", "default"),
-            ("fan/power_limits", "0 0"),
             ("fan/fan_curve", "30:20 40:30 55:45 70:65 85:90"),
             ("fan/fan_curve", "40:30 90:100"),
             ("fan/fan_curve_enable", "1"),
@@ -88,10 +85,8 @@ class OmenCtlTest(unittest.TestCase):
             ("rgb_zones/brightness_lock", "2"),
             ("fan/max_fan", "yes"),
             ("fan/thermal_profile", "cool"),        # not a writable preset
-            ("fan/power_limits", "157 55"),         # PL2 < PL1
-            ("fan/power_limits", "55 500"),         # above ceiling
-            ("fan/power_limits", "55"),             # one value
-            ("fan/power_limits", "55; reboot"),
+            ("fan/power_limits", "55 157"),         # key removed: read-only
+            ("fan/power_limits", "default"),        # until a model-safe range
             ("fan/fan_curve", "30:20"),             # single point
             ("fan/fan_curve", "30:20 40:30 50:40 60:50 70:60 80:70 90:80 100:90 110:100"),  # 9 points
             ("fan/fan_curve", "30:101 40:30"),      # percent > 100
