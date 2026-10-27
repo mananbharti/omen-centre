@@ -85,6 +85,14 @@ RAIL_CSS = b"""
   padding: 0; }
 .apply-footer { background-color: #1c1c26; padding: 8px 16px;
   border-top: 1px solid #2c2c3a; }
+.omen-tab { background: none; border: none; border-radius: 0;
+  padding: 4px 14px 6px 14px; color: #b9b9c6; font-weight: 600;
+  box-shadow: none; min-height: 0; }
+.omen-tab:hover { color: #ffffff; }
+.omen-tab:checked { color: #ffffff;
+  border-bottom: 2px solid #d92642; }
+.canvas-controls { background-color: alpha(#101016, 0.92);
+  border-radius: 8px; padding: 4px 6px; margin-bottom: 10px; }
 """
 
 
@@ -1032,9 +1040,18 @@ class OmenWindow(Adw.ApplicationWindow):
         self._ls_stack = Gtk.Stack()
         self._ls_stack.set_transition_type(
             Gtk.StackTransitionType.CROSSFADE)
-        tabs = Gtk.StackSwitcher()
-        tabs.set_stack(self._ls_stack)
-        tabs.set_halign(Gtk.Align.CENTER)
+        tabs = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        tabs.set_halign(Gtk.Align.START)
+        tabs.set_margin_start(6)
+        self._ls_tab_btns = {}
+        for _tname, _tlabel in (("layout", "Layout"),
+                                ("effects", "Effects")):
+            tb = Gtk.ToggleButton(label=_tlabel)
+            tb.add_css_class("omen-tab")
+            tb.connect("toggled", self._on_ls_tab, _tname)
+            self._ls_tab_btns[_tname] = tb
+            tabs.append(tb)
+        self._ls_tab_btns["layout"].set_active(True)
         trow = Adw.ActionRow()
         trow.set_child(tabs)
         tgrp.add(trow)
@@ -1078,9 +1095,15 @@ class OmenWindow(Adw.ApplicationWindow):
         canvas_wrap.set_hexpand(True)
         self.kb_preview = LightCanvas(self._on_preview_zone)
         self.kb_preview.set_hexpand(True)
-        canvas_wrap.append(self.kb_preview)
+        self.kb_preview.set_vexpand(True)
+        coverlay = Gtk.Overlay()
+        coverlay.set_child(self.kb_preview)
+        coverlay.set_vexpand(True)
+        canvas_wrap.append(coverlay)
         zbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         zbar.set_halign(Gtk.Align.CENTER)
+        zbar.set_valign(Gtk.Align.END)
+        zbar.add_css_class("canvas-controls")
         zm = Gtk.Button(label="-")
         zm.connect("clicked", lambda _b: self._ls_zoom(-0.25))
         self._ls_zoom_label = Gtk.Label(label="100%")
@@ -1090,20 +1113,23 @@ class OmenWindow(Adw.ApplicationWindow):
         zf.connect("clicked", lambda _b: self._ls_zoom(0.0, reset=True))
         for wdg in (zm, self._ls_zoom_label, zp, zf):
             zbar.append(wdg)
+        coverlay.add_overlay(zbar)
+        snapbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        snapbar.set_halign(Gtk.Align.CENTER)
         snap = Gtk.Button(label="Stage static snapshot")
         snap.set_tooltip_text(
             "Stages the current preview as a static 4-zone color set - "
             "press Apply to write. Animations stay preview-only; the "
             "driver interface is not used for streaming.")
         snap.connect("clicked", self._on_ls_snapshot)
-        zbar.append(snap)
+        snapbar.append(snap)
         snote = Gtk.Label(
             label="Layers are a software preview. Snapshot stages a static "
                   "4-zone result; animation stays in preview.")
         snote.add_css_class("dim-label")
         snote.add_css_class("caption")
         canvas_wrap.append(snote)
-        canvas_wrap.append(zbar)
+        canvas_wrap.append(snapbar)
         body.append(canvas_wrap)
 
         # Right effects panel
@@ -1337,6 +1363,18 @@ class OmenWindow(Adw.ApplicationWindow):
         self._apply_bar.append(discard)
         self._apply_bar.append(applyb)
         self._footer.append(self._apply_bar)
+
+    def _on_ls_tab(self, btn, name):
+        if not btn.get_active():
+            return
+        if self._ls_stack.get_child_by_name(name) is None:
+            return  # pages not added yet (initial activation at build)
+        for n, b in self._ls_tab_btns.items():
+            if n != name:
+                b.handler_block_by_func(self._on_ls_tab)
+                b.set_active(False)
+                b.handler_unblock_by_func(self._on_ls_tab)
+        self._ls_stack.set_visible_child_name(name)
 
     def _ls_zoom(self, delta, reset=False):
         z = 1.0 if reset else self.kb_preview.zoom + delta
