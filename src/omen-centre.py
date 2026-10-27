@@ -75,6 +75,12 @@ RAIL_CSS = b"""
 .vital-label { font-size: 12px; opacity: 0.65; }
 .zone-box { border-radius: 8px; border: 2px solid alpha(black, 0.3);
   min-width: 64px; min-height: 44px; }
+.mode-card { border-radius: 10px; border: 2px solid transparent;
+  background-color: alpha(@card_bg_color, 0.55); }
+.mode-card:checked { border-color: #d92642;
+  background-color: alpha(@card_bg_color, 0.8); }
+.swatch { border-radius: 6px; min-width: 28px; min-height: 28px;
+  padding: 0; }
 """
 
 
@@ -340,7 +346,8 @@ class OmenWindow(Adw.ApplicationWindow):
     def _paint_button(self, b, hexs):
         provider = Gtk.CssProvider()
         provider.load_from_data(
-            (".zone-box { background-color: #%s; }" % hexs).encode())
+            (".zone-box, .swatch { background-color: #%s; }"
+             % hexs).encode())
         b.get_style_context().add_provider(
             provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
@@ -400,8 +407,10 @@ class OmenWindow(Adw.ApplicationWindow):
             self.power_buttons["silent"])
         current = (be.read("fan/thermal_profile") or "normal").lower()
         btn = self.power_buttons.get(current)
+        self._loading = True
         if btn:
             btn.set_active(True)
+        self._loading = False
         prow = Adw.ActionRow()
         prow.set_child(box)
         pgrp.add(prow)
@@ -416,10 +425,86 @@ class OmenWindow(Adw.ApplicationWindow):
         self._loading = True
         for p, b in getattr(self, "power_buttons", {}).items():
             b.set_active(p == profile)
-        combo = getattr(self, "thermal_combo", None)
-        if combo is not None and profile in be.THERMAL_PROFILES:
-            combo.set_selected(be.THERMAL_PROFILES.index(profile))
+        for p, b in getattr(self, "mode_cards", {}).items():
+            b.set_active(p == profile)
         self._loading = False
+
+    # ---- Lighting staged Apply (OGH-style commit workflow) ----
+
+    DEFAULT_ZONE_COLORS = ("FFFFFF", "FFFFFF", "FFFFFF", "FFFFFF")
+
+    def _stage(self, rel, value):
+        if self._loading:
+            return
+        self._staged_writes[rel] = value
+        self._lighting_dirty(True)
+
+    def _lighting_dirty(self, dirty=True):
+        bar = getattr(self, "_apply_bar", None)
+        if bar is not None:
+            bar.set_visible(dirty)
+
+    def _on_discard(self, _b):
+        self._staged_writes = {}
+        self._reload_lighting_ui()
+        self._lighting_dirty(False)
+        self._toast("Changes discarded")
+
+    def _on_restore_defaults(self, _b):
+        for i, color in enumerate(self.DEFAULT_ZONE_COLORS):
+            self._stage("rgb_zones/zone0%d" % i, color)
+            self._paint_button(self.zone_btns[i], color)
+            self.zone_btns[i]._omen_hex = color
+        self._stage("rgb_zones/all",
+                    self.DEFAULT_ZONE_COLORS[0])
+        self._paint_button(self.allzone_btn,
+                           self.DEFAULT_ZONE_COLORS[0])
+        self.allzone_btn._omen_hex = self.DEFAULT_ZONE_COLORS[0]
+        self._toast("Defaults staged - press Apply to commit")
+
+    def _on_apply_lighting(self, _b):
+        failed = False
+        for rel, value in list(self._staged_writes.items()):
+            try:
+                be.set_value(rel, value)
+            except be.BackendError as exc:
+                self.toasts.add_toast(
+                    Adw.Toast(title="Failed: %s" % exc))
+                failed = True
+        self._staged_writes = {}
+        self._lighting_dirty(False)
+        self._reload_lighting_ui()
+        if not failed:
+            self._toast("Lighting applied")
+
+    def _reload_lighting_ui(self):
+        self._loading = True
+        for i, b in enumerate(self.zone_btns):
+            cur = (be.read("rgb_zones/zone0%d" % i) or "FFFFFF").upper()
+            if len(cur) != 6:
+                cur = "FFFFFF"
+            self._paint_button(b, cur)
+            b._omen_hex = cur
+        allcur = (be.read("rgb_zones/all") or "FFFFFF").upper()
+        if len(allcur) != 6:
+            allcur = "FFFFFF"
+        self._paint_button(self.allzone_btn, allcur)
+        self.allzone_btn._omen_hex = allcur
+        self.brightness_scale.set_value(
+            be.read_int("rgb_zones/brightness") or 100)
+        mode = be.read("rgb_zones/animation_mode") or "static"
+        btn = self.effect_buttons.get(mode)
+        if btn:
+            btn.set_active(True)
+        self.speed_spin.set_value(
+            be.read_int("rgb_zones/animation_speed") or 5)
+        self._loading = False
+
+    def _on_swatch(self, _b, hexcol):
+        rel = "rgb_zones/all"
+        self._paint_button(self.allzone_btn, hexcol)
+        self.allzone_btn._omen_hex = hexcol
+        self._stage(rel, hexcol)
 
     # ---- Lighting ----
 
@@ -436,6 +521,7 @@ class OmenWindow(Adw.ApplicationWindow):
         zbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         zbox.set_homogeneous(True)
         self.zone_btns = []
+        self._staged_writes = getattr(self, "_staged_writes", {})
         for i in range(4):
             rel = "rgb_zones/zone0%d" % i
             current = (be.read(rel) or "FFFFFF").upper()
@@ -466,6 +552,7 @@ class OmenWindow(Adw.ApplicationWindow):
         ab.add_css_class("zone-box")
         self._paint_button(ab, allcur)
         ab._omen_hex = allcur
+        self.allzone_btn = ab
         ab.set_valign(Gtk.Align.CENTER)
         ab.connect("clicked", self._on_zone_clicked, "rgb_zones/all", ab)
         arow.add_suffix(ab)
@@ -503,6 +590,48 @@ class OmenWindow(Adw.ApplicationWindow):
         lockrow.add_suffix(self.lock_switch)
         grp.add(lockrow)
 
+        sw = Gtk.FlowBox()
+        sw.set_max_children_per_line(18)
+        sw.set_min_children_per_line(9)
+        sw.set_selection_mode(Gtk.SelectionMode.NONE)
+        for hexcol in ("FF0000", "FF4400", "FF8800", "FFCC00", "FFFF00",
+                       "88FF00", "00FF00", "00FF88", "00FFCC", "00CCFF",
+                       "0088FF", "0000FF", "4400FF", "8800FF", "CC00FF",
+                       "FF00CC", "FF0066", "FFFFFF"):
+            sb = Gtk.Button()
+            sb.add_css_class("swatch")
+            sb.set_size_request(28, 28)
+            sb.set_tooltip_text("#" + hexcol)
+            self._paint_button(sb, hexcol)
+            sb.connect("clicked", self._on_swatch, hexcol)
+            sw.append(sb)
+        swrow = Adw.ActionRow(title="Colors",
+                              subtitle="Basic set - zone tiles open a "
+                                       "custom picker")
+        swrow.add_suffix(sw)
+        grp.add(swrow)
+
+        self._apply_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                                  spacing=8)
+        self._apply_bar.set_margin_top(6)
+        self._apply_bar.set_visible(False)
+        restore = Gtk.Button(label="Restore defaults")
+        restore.connect("clicked", self._on_restore_defaults)
+        discard = Gtk.Button(label="Discard changes")
+        discard.connect("clicked", self._on_discard)
+        applyb = Gtk.Button(label="Apply")
+        applyb.add_css_class("suggested-action")
+        applyb.connect("clicked", self._on_apply_lighting)
+        self._apply_bar.append(restore)
+        sp = Gtk.Box()
+        sp.set_hexpand(True)
+        self._apply_bar.append(sp)
+        self._apply_bar.append(discard)
+        self._apply_bar.append(applyb)
+        barrow = Adw.ActionRow()
+        barrow.set_child(self._apply_bar)
+        grp.add(barrow)
+
         agrp = Adw.PreferencesGroup(title="Animation")
         page.add(agrp)
         flow = Gtk.FlowBox()
@@ -525,8 +654,10 @@ class OmenWindow(Adw.ApplicationWindow):
             flow.append(b)
             self.effect_buttons[key] = b
         active = self.effect_buttons.get(current_mode)
+        self._loading = True
         if active:
             active.set_active(True)
+        self._loading = False
         erow = Adw.ActionRow()
         erow.set_child(flow)
         agrp.add(erow)
@@ -566,13 +697,9 @@ class OmenWindow(Adw.ApplicationWindow):
         picker.popup()
 
     def _on_color_chosen(self, rel, hexs, b):
-        old = b._omen_hex
         self._paint_button(b, hexs)
         b._omen_hex = hexs
-        def _revert():
-            self._paint_button(b, old)
-            b._omen_hex = old
-        self._apply(rel, hexs, revert=_revert)
+        self._stage(rel, hexs)
 
     def _on_identify(self, _b):
         for i, c in enumerate(["FF0000", "00FF00", "0000FF", "FFFFFF"]):
@@ -591,7 +718,7 @@ class OmenWindow(Adw.ApplicationWindow):
 
     def _apply_brightness(self, value):
         self._brightness_timer = None
-        self._apply("rgb_zones/brightness", str(value))
+        self._stage("rgb_zones/brightness", str(value))
         return GLib.SOURCE_REMOVE
 
     def _on_brightness_lock(self, sw, _p):
@@ -602,13 +729,14 @@ class OmenWindow(Adw.ApplicationWindow):
     def _on_effect(self, button, key):
         if not button.get_active():
             return
-        self._apply("rgb_zones/animation_mode", key)
+        self._stage("rgb_zones/animation_mode", key)
 
     def _on_anim_speed(self, spin):
-        self._apply("rgb_zones/animation_speed", str(int(spin.get_value())))
+        self._stage("rgb_zones/animation_speed",
+                    str(int(spin.get_value())))
 
     def _on_gradient(self, _b):
-        self._apply("rgb_zones/gradient_config",
+        self._stage("rgb_zones/gradient_config",
                     self.gradient_entry.get_text().strip())
 
     # ---- Performance (OGH Performance Control mirror) ----
@@ -631,24 +759,54 @@ class OmenWindow(Adw.ApplicationWindow):
         dgrp.add(cards)
 
         mgrp = Adw.PreferencesGroup(
-            title="Power mode",
-            description="Balanced stays until you switch. Silent "
-                        "minimizes fan noise (like OMEN's ECO, without "
-                        "its display/turbo caps); Performance favors "
-                        "gaming. Matches the system power menu.")
+            title="Optimize your performance",
+            description="Select the mode that works best for you. "
+                        "Comfort maps to the driver's silent preset, "
+                        "Default to normal, Performance to performance.")
         page.add(mgrp)
-        modes = Gtk.StringList()
-        for m in ("Silent", "Balanced", "Performance"):
-            modes.append(m)
-        self.thermal_combo = Adw.ComboRow(title="Mode", model=modes)
+        cards2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        cards2.set_homogeneous(True)
+        self.mode_cards = {}
+        for name, profile, desc in (
+            ("Comfort", "silent",
+             "Suitable for casual tasks. Lowers CPU and GPU "
+             "temperatures."),
+            ("Default", "normal", "Suitable for all types of tasks."),
+            ("Performance", "performance",
+             "Suitable for gaming. May increase heat and noise "
+             "levels."),
+        ):
+            b = Gtk.ToggleButton()
+            b.add_css_class("mode-card")
+            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            inner.set_margin_top(12)
+            inner.set_margin_bottom(12)
+            inner.set_margin_start(12)
+            inner.set_margin_end(12)
+            t = Gtk.Label(label=name)
+            t.add_css_class("title-4")
+            d = Gtk.Label(label=desc, wrap=True)
+            d.add_css_class("caption")
+            d.set_justify(Gtk.Justification.CENTER)
+            inner.append(t)
+            inner.append(d)
+            b.set_child(inner)
+            b.connect("toggled", self._on_mode_card, profile)
+            cards2.append(b)
+            self.mode_cards[profile] = b
+        self.mode_cards["normal"].set_group(self.mode_cards["silent"])
+        self.mode_cards["performance"].set_group(
+            self.mode_cards["silent"])
         current = (be.read("fan/thermal_profile") or "normal").lower()
-        idx = {"silent": 0, "normal": 1, "performance": 2}.get(current, 1)
-        self.thermal_combo.set_selected(idx)
-        self.thermal_combo.connect("notify::selected", self._on_thermal_combo)
-        mgrp.add(self.thermal_combo)
+        btn = self.mode_cards.get(current)
+        self._loading = True
+        if btn:
+            btn.set_active(True)
+        self._loading = False
+        mgrp.add(cards2)
 
         tgrp = Adw.PreferencesGroup(
-            title="Thermal Control",
+            title="Fan Speed",
             description="AUTO: the BIOS adjusts fan speed to load. "
                         "MAX: both fans at full speed. "
                         "MANUAL: your own fan curve, where supported.")
@@ -672,12 +830,14 @@ class OmenWindow(Adw.ApplicationWindow):
             self.tc_buttons["MANUAL"] = b
         max_on = be.read("fan/max_fan") == "1"
         curve_on = be.read("fan/fan_curve_enable") == "1"
+        self._loading = True
         if max_on:
             self.tc_buttons["MAX"].set_active(True)
         elif curve_on and curve_supported:
             self.tc_buttons["MANUAL"].set_active(True)
         else:
             self.tc_buttons["AUTO"].set_active(True)
+        self._loading = False
         trow = Adw.ActionRow()
         trow.set_child(tc)
         tgrp.add(trow)
@@ -748,8 +908,9 @@ class OmenWindow(Adw.ApplicationWindow):
                     parts[0], parts[1])
         pgrp.add(Adw.ActionRow(title="Current limits", subtitle=pl_text))
 
-    def _on_thermal_combo(self, row, _p):
-        profile = ("silent", "normal", "performance")[row.get_selected()]
+    def _on_mode_card(self, button, profile):
+        if not button.get_active():
+            return
         self._apply("fan/thermal_profile", profile)
         self._sync_profile_controls(profile)
 
@@ -831,6 +992,65 @@ class OmenWindow(Adw.ApplicationWindow):
         for box, _ in (self.v_cpu_fan, self.v_gpu_fan):
             fr.append(box)
         fgrp.add(fr)
+
+        pgrp = Adw.PreferencesGroup(
+            title="Top Processes",
+            description="Highest CPU use since the last refresh")
+        page.add(pgrp)
+        self.proc_rows = []
+        for _ in range(5):
+            r = Adw.ActionRow(title="-", subtitle="-")
+            pgrp.add(r)
+            self.proc_rows.append(r)
+        self._prev_proc = {}
+        self._prev_cpu_total = None
+
+    def _sample_top_processes(self):
+        procs = {}
+        try:
+            with open("/proc/stat") as fh:
+                total = sum(int(x) for x in
+                            fh.readline().split()[1:])
+        except OSError:
+            return None
+        for pid in os.listdir("/proc"):
+            if not pid.isdigit():
+                continue
+            try:
+                with open("/proc/%s/stat" % pid) as fh:
+                    data = fh.read()
+            except OSError:
+                continue
+            rparen = data.rfind(")")
+            if rparen < 0:
+                continue
+            comm = data[data.find("(") + 1:rparen]
+            fields = data[rparen + 2:].split()
+            if len(fields) < 13:
+                continue
+            try:
+                jiffies = int(fields[11]) + int(fields[12])
+            except ValueError:
+                continue
+            procs[pid] = (comm, jiffies)
+        if self._prev_cpu_total is None:
+            self._prev_proc = procs
+            self._prev_cpu_total = total
+            return None
+        total_delta = total - self._prev_cpu_total
+        usage = []
+        if total_delta > 0:
+            for pid, (comm, jiffies) in procs.items():
+                prev = self._prev_proc.get(pid)
+                if prev is None:
+                    continue
+                delta = jiffies - prev[1]
+                if delta > 0:
+                    usage.append((100.0 * delta / total_delta, comm))
+        self._prev_proc = procs
+        self._prev_cpu_total = total
+        usage.sort(reverse=True)
+        return usage[:5]
 
     # ---- My Games ----
 
@@ -985,6 +1205,17 @@ class OmenWindow(Adw.ApplicationWindow):
             ("%d RPM" % cpu_rpm) if cpu_rpm is not None else "n/a")
         self.v_gpu_fan[1].set_label(
             ("%d RPM" % gpu_rpm) if gpu_rpm is not None else "n/a")
+
+        usage = self._sample_top_processes()
+        if usage is not None:
+            for i, row in enumerate(self.proc_rows):
+                if i < len(usage):
+                    pct, comm = usage[i]
+                    row.set_title(comm)
+                    row.set_subtitle("%.1f%% CPU" % pct)
+                else:
+                    row.set_title("-")
+                    row.set_subtitle("-")
         return GLib.SOURCE_CONTINUE
 
 
