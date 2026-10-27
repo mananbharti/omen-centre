@@ -117,3 +117,31 @@ class OmenCtlTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class LightingOnlyTest(unittest.TestCase):
+    def _run(self, marker, key, val):
+        import tempfile
+        root = tempfile.mkdtemp()
+        for d in ("rgb_zones", "fan"):
+            os.makedirs(os.path.join(root, d))
+        for f in ("rgb_zones/zone00", "fan/thermal_profile"):
+            open(os.path.join(root, f), "w").write("x\n")
+        env = dict(os.environ, OMEN_SYSFS_ROOT=root,
+                   OMEN_LIGHTING_ONLY_MARKER=marker)
+        r = subprocess.run([sys.executable, OMENCTL, "set", key, val],
+                           env=env, capture_output=True, text=True)
+        return r.returncode, open(os.path.join(root, key)).read().strip()
+
+    def test_marker_blocks_fan_allows_colour(self):
+        import tempfile
+        m = tempfile.mktemp()
+        open(m, "w").close()
+        rc, v = self._run(m, "fan/thermal_profile", "silent")
+        self.assertEqual(rc, 2); self.assertEqual(v, "x")
+        rc, v = self._run(m, "rgb_zones/zone00", "FF0000")
+        self.assertEqual(rc, 0); self.assertEqual(v, "FF0000")
+
+    def test_no_marker_allows_fan(self):
+        rc, v = self._run("/nonexistent/marker", "fan/thermal_profile", "silent")
+        self.assertEqual(rc, 0); self.assertEqual(v, "silent")

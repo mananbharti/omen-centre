@@ -22,6 +22,13 @@ if os.geteuid() == 0:
 else:
     SYSFS_ROOT = os.environ.get("OMEN_SYSFS_ROOT", DEFAULT_SYSFS_ROOT)
 
+# Root-owned marker written by `install.sh --lighting-only`. While it exists
+# the helper refuses every fan/* key. Test override only when not root.
+LIGHTING_ONLY_MARKER = "/etc/omen-centre/lighting-only"
+if os.geteuid() != 0:
+    LIGHTING_ONLY_MARKER = os.environ.get("OMEN_LIGHTING_ONLY_MARKER",
+                                          LIGHTING_ONLY_MARKER)
+
 ANIMATION_MODES = {
     "static", "breathing", "rainbow", "wave", "pulse", "chase",
     "sparkle", "candle", "aurora", "disco", "gradient", "spectrum",
@@ -114,6 +121,10 @@ def main(argv):
     validator = VALIDATORS.get(key)
     if validator is None:
         print(f"unknown key: {key!r}", file=sys.stderr)
+        return 2
+    if key.startswith("fan/") and os.path.exists(LIGHTING_ONLY_MARKER):
+        print("fan writes are disabled (lighting-only install)",
+              file=sys.stderr)
         return 2
     if not validator(value):
         print(f"invalid value for {key}: {value!r}", file=sys.stderr)
