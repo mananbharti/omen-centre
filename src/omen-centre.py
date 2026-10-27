@@ -179,6 +179,120 @@ def gauge_card(title):
     return box, g, sub
 
 
+class CurveGraph(Gtk.DrawingArea):
+    """OGH-style fan curve editor: X = temp C, Y = fan %, draggable points."""
+
+    T_MIN, T_MAX = 20, 110
+    PAD = 34
+
+    def __init__(self, entry):
+        super().__init__()
+        self.entry = entry
+        self.points = []          # list of [temp, pct]
+        self._drag = None
+        self.set_content_width(420)
+        self.set_content_height(220)
+        self.set_draw_func(self._draw)
+        drag = Gtk.GestureDrag()
+        drag.connect("drag-begin", self._on_begin)
+        drag.connect("drag-update", self._on_update)
+        drag.connect("drag-end", self._on_end)
+        self.add_controller(drag)
+        self.load_from_entry()
+
+    def load_from_entry(self):
+        pts = []
+        for tok in self.entry.get_text().split():
+            if ":" in tok:
+                t, p = tok.split(":", 1)
+                try:
+                    pts.append([int(t), int(p)])
+                except ValueError:
+                    pass
+        pts.sort()
+        self.points = pts[:8]
+        self.queue_draw()
+
+    def _xy(self, t, p, w, h):
+        x = self.PAD + (t - self.T_MIN) / (self.T_MAX - self.T_MIN) \
+            * (w - 2 * self.PAD)
+        y = h - self.PAD - p / 100.0 * (h - 2 * self.PAD)
+        return x, y
+
+    def _tp(self, x, y, w, h):
+        t = self.T_MIN + (x - self.PAD) / (w - 2 * self.PAD) \
+            * (self.T_MAX - self.T_MIN)
+        p = (h - self.PAD - y) / (h - 2 * self.PAD) * 100.0
+        return int(round(t)), int(round(max(0.0, min(100.0, p))))
+
+    def _draw(self, area, cr, w, h):
+        import math  # noqa: F401
+        # axes
+        cr.set_source_rgba(0.6, 0.6, 0.65, 0.6)
+        cr.set_line_width(1.0)
+        cr.move_to(self.PAD, self.PAD - 10)
+        cr.line_to(self.PAD, h - self.PAD)
+        cr.line_to(w - self.PAD + 10, h - self.PAD)
+        cr.stroke()
+        cr.select_font_face("Sans")
+        cr.set_font_size(10)
+        cr.set_source_rgba(0.7, 0.7, 0.75, 0.8)
+        for t in range(self.T_MIN + 10, self.T_MAX, 20):
+            x, _ = self._xy(t, 0, w, h)
+            cr.move_to(x - 8, h - self.PAD + 14)
+            cr.show_text("%d°" % t)
+        for p in (0, 25, 50, 75, 100):
+            _, y = self._xy(self.T_MIN, p, w, h)
+            cr.move_to(4, y + 3)
+            cr.show_text("%d%%" % p)
+        if len(self.points) >= 2:
+            # curve line
+            cr.set_source_rgba(0.66, 0.44, 0.84, 0.9)
+            cr.set_line_width(2.0)
+            for i, (t, p) in enumerate(self.points):
+                x, y = self._xy(t, p, w, h)
+                cr.line_to(x, y) if i else cr.move_to(x, y)
+            cr.stroke()
+        # handles
+        for t, p in self.points:
+            x, y = self._xy(t, p, w, h)
+            cr.set_source_rgba(0.85, 0.25, 0.35, 1.0)
+            cr.arc(x, y, 6, 0, 6.2832)
+            cr.fill()
+
+    def _nearest(self, x, y, w, h):
+        best, bd = None, 18.0
+        for i, (t, p) in enumerate(self.points):
+            px, py = self._xy(t, p, w, h)
+            d = ((px - x) ** 2 + (py - y) ** 2) ** 0.5
+            if d < bd:
+                best, bd = i, d
+        return best
+
+    def _on_begin(self, g, x, y):
+        w, h = self.get_width(), self.get_height()
+        self._drag = self._nearest(x, y, w, h)
+        self._sx, self._sy = x, y
+
+    def _on_update(self, g, dx, dy):
+        if self._drag is None:
+            return
+        w, h = self.get_width(), self.get_height()
+        t, p = self._tp(self._sx + dx, self._sy + dy, w, h)
+        i = self._drag
+        lo = self.points[i - 1][0] + 1 if i > 0 else self.T_MIN
+        hi = self.points[i + 1][0] - 1 if i < len(self.points) - 1 \
+            else self.T_MAX
+        self.points[i][0] = max(lo, min(hi, t))
+        self.points[i][1] = p
+        self.entry.set_text(" ".join("%d:%d" % (t2, p2)
+                                     for t2, p2 in self.points))
+        self.queue_draw()
+
+    def _on_end(self, g, dx, dy):
+        self._drag = None
+
+
 def fmt_temp(mc):
     """millidegree-C string honoring the unit preference"""
     if mc is None:
@@ -951,6 +1065,15 @@ class OmenWindow(Adw.ApplicationWindow):
                 self.curve_entry.set_text(saved)
             self.curve_entry.set_width_chars(32)
             self.curve_entry.set_valign(Gtk.Align.CENTER)
+            self.curve_graph = CurveGraph(self.curve_entry)
+            self.curve_entry.connect(
+                "changed",
+                lambda e: self.curve_graph.load_from_entry())
+            grow = Adw.ActionRow(
+                title="Drag points to shape the curve",
+                subtitle="X: temperature, Y: fan speed")
+            grow.set_child(self.curve_graph)
+            fgrp.add(grow)
             cbtn = Gtk.Button(label="Apply")
             cbtn.set_valign(Gtk.Align.CENTER)
             cbtn.connect("clicked", self._on_curve_apply)
@@ -1053,6 +1176,9 @@ class OmenWindow(Adw.ApplicationWindow):
 
     def _on_curve_apply(self, _b):
         self._apply("fan/fan_curve", self.curve_entry.get_text().strip())
+        g = getattr(self, "curve_graph", None)
+        if g is not None:
+            g.load_from_entry()
 
     def _on_curve_reset(self, _b):
         self._apply("fan/thermal_profile", "normal")
@@ -1061,6 +1187,9 @@ class OmenWindow(Adw.ApplicationWindow):
             self._loading = True
             self.curve_entry.set_text(saved)
             self._loading = False
+            g = getattr(self, "curve_graph", None)
+            if g is not None:
+                g.load_from_entry()
 
     # ---- System Vitals ----
 
