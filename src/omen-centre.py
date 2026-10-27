@@ -1507,6 +1507,8 @@ class OmenWindow(Adw.ApplicationWindow):
         self._ls_comp = le.Compositor(
             [b._omen_hex for b in self.zone_btns])
         self._ls_selected = None  # selected software layer or None (Base)
+        for _l in le.layers_from_json(load_pref("ls_layers") or ""):
+            self._ls_comp.add_layer(_l)
         self._ls_rebuild_layers()
         GLib.timeout_add(100, self._ls_preview_tick)
         if os.environ.get("OMEN_LS_DEMO"):
@@ -1619,7 +1621,12 @@ class OmenWindow(Adw.ApplicationWindow):
         self._ls_selected = layer
         self._ls_rebuild_layers()
 
+    def _ls_save(self):
+        if getattr(self, "_ls_comp", None) is not None:
+            save_pref("ls_layers", le.layers_to_json(self._ls_comp.layers))
+
     def _ls_rebuild_layers(self):
+        self._ls_save()
         lbox = self._ls_lbox
         while True:
             row = lbox.get_row_at_index(0)
@@ -1702,6 +1709,7 @@ class OmenWindow(Adw.ApplicationWindow):
         name = entry.get_text().strip()
         if name:
             layer.name = name
+            self._ls_save()
             # update the row title without rebuilding (keeps entry focus)
             for i, l in enumerate(self._ls_comp.layers, start=1):
                 row = self._ls_lbox.get_row_at_index(i)
@@ -1780,9 +1788,11 @@ class OmenWindow(Adw.ApplicationWindow):
     def _ls_color_done(self, layer, attr, hexs, b):
         setattr(layer, attr, hexs)
         self._paint_button(b, hexs)
+        self._ls_save()
 
     def _on_ls_speed(self, scale, layer):
         layer.speed = int(scale.get_value())
+        self._ls_save()
 
     def _on_ls_zone_chip(self, btn, layer, z):
         zones = set(layer.zones)
@@ -1794,6 +1804,7 @@ class OmenWindow(Adw.ApplicationWindow):
             btn.set_active(True)  # keep at least one zone
             return
         layer.zones = tuple(sorted(zones))
+        self._ls_save()
 
     def _on_ls_snapshot(self, _b):
         out = self._ls_comp.tick()

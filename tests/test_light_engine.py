@@ -107,3 +107,23 @@ class LayerOpsTest(unittest.TestCase):
         b.zones = (3,)
         self.assertEqual((a.name, a.primary, a.zones),
                          ("a", "FF8800", (0, 1)))
+
+
+class PersistTest(unittest.TestCase):
+    def test_roundtrip_order_and_secondary(self):
+        a = le.Layer("A", "wave", "112233", "445566", 30, (0, 2), False)
+        b = a.clone("A copy")
+        b.secondary = "ABCDEF"
+        got = le.layers_from_json(le.layers_to_json([a, b]))
+        self.assertEqual([l.name for l in got], ["A", "A copy"])
+        self.assertEqual(got[1].secondary, "ABCDEF")
+        self.assertEqual((got[0].zones, got[0].enabled, got[0].speed),
+                         ((0, 2), False, 30))
+
+    def test_malformed_skipped(self):
+        for raw in ("", "x", "{}", '[{"name":"n"}]',
+                    '[{"name":"n","type":"nope","primary":"112233",'
+                    '"secondary":"112233","speed":1,"zones":[0]}]',
+                    '[{"name":"n","type":"wave","primary":"zz",'
+                    '"secondary":"112233","speed":1,"zones":[0]}]'):
+            self.assertEqual(le.layers_from_json(raw), [])

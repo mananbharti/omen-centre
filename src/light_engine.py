@@ -147,3 +147,36 @@ class Compositor:
     def animated(self):
         """True when any enabled layer needs ticking."""
         return any(l.enabled and l.ltype != "static" for l in self.layers)
+
+
+def layers_to_json(layers):
+    import json
+    return json.dumps([
+        {"name": l.name, "type": l.ltype, "primary": l.primary,
+         "secondary": l.secondary, "speed": l.speed,
+         "zones": list(l.zones), "enabled": bool(l.enabled)}
+        for l in layers], separators=(",", ":"))
+
+
+def layers_from_json(raw):
+    """Parse saved layers; any malformed entry is skipped, never raised."""
+    import json
+    import re
+    out = []
+    try:
+        items = json.loads(raw) if raw else []
+    except ValueError:
+        return out
+    if not isinstance(items, list):
+        return out
+    for d in items[:64]:
+        try:
+            if not (re.fullmatch(r"[0-9A-Fa-f]{6}", str(d["primary"]))
+                    and re.fullmatch(r"[0-9A-Fa-f]{6}", str(d["secondary"]))):
+                continue
+            out.append(Layer(str(d["name"])[:60], d["type"], d["primary"],
+                             d["secondary"], d["speed"], d["zones"],
+                             bool(d.get("enabled", True))))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
