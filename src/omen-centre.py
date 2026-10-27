@@ -2353,6 +2353,8 @@ class OmenWindow(Adw.ApplicationWindow):
 
         self.home_cpu_temp[1].set_label(ct_s)
         self.home_gpu_temp[1].set_label(gt_s)
+        self.home_gpu_temp[1].set_tooltip_text(
+            (be.GPU_REASON or None) if gt_s.startswith('n/a') else None)
         self.home_cpu_load[1].set_value((load or 0.0) / 100.0, load_s)
         self.home_cpu_load[2].set_label("Utilization")
         self.home_cpu_fan[1].set_label(
@@ -2362,6 +2364,8 @@ class OmenWindow(Adw.ApplicationWindow):
 
         self.perf_cpu_temp[1].set_label(ct_s)
         self.perf_gpu_temp[1].set_label(gt_s)
+        self.perf_gpu_temp[1].set_tooltip_text(
+            (be.GPU_REASON or None) if gt_s.startswith('n/a') else None)
         self.perf_cpu_load[1].set_label(load_s)
         self.perf_cpu_fan[1].set_label(
             ("%d RPM" % cpu_rpm) if cpu_rpm is not None else "n/a")
@@ -2370,6 +2374,8 @@ class OmenWindow(Adw.ApplicationWindow):
 
         self.v_cpu_temp[1].set_label(ct_s)
         self.v_gpu_temp[1].set_label(gt_s)
+        self.v_gpu_temp[1].set_tooltip_text(
+            (be.GPU_REASON or None) if gt_s.startswith('n/a') else None)
         load_f = (load or 0.0) / 100.0
         self.v_cpu_load[1].set_value(load_f, load_s)
         ram_f = (100.0 * used / total / 100.0) if total else 0.0

@@ -132,22 +132,71 @@ def read_gpu_temp_mc():
 
 
 _NV_CACHE = [0.0, None]
+PCI_ROOT = os.environ.get("OMEN_PCI_ROOT", "/sys/bus/pci/devices")
+NV_PROC = os.environ.get("OMEN_NV_PROC", "/proc/driver/nvidia/version")
+GPU_REASON = ""
+
+
+def _nvidia_pci_state():
+    """Runtime power state of the first NVIDIA display device, no wake.
+
+    Reads the kernel's PCI runtime_status ("active" / "suspended" / ...)
+    which is a plain sysfs attribute and does not power the device up.
+    Returns None when no NVIDIA display device is present.
+    """
+    try:
+        devs = sorted(os.listdir(PCI_ROOT))
+    except OSError:
+        return None
+    for d in devs:
+        base = os.path.join(PCI_ROOT, d)
+        try:
+            with open(os.path.join(base, "vendor")) as fh:
+                if fh.read().strip().lower() != "0x10de":
+                    continue
+            with open(os.path.join(base, "class")) as fh:
+                if not fh.read().strip().startswith("0x03"):
+                    continue
+        except OSError:
+            continue
+        try:
+            with open(os.path.join(base, "power", "runtime_status")) as fh:
+                return fh.read().strip()
+        except OSError:
+            return "unknown"
+    return None
 
 
 def _read_nvidia_smi_mc():
-    """GPU temp via nvidia-smi, only when the proprietary driver is loaded.
+    """GPU temp via nvidia-smi, only when it cannot wake the GPU.
 
-    The proprietary NVIDIA driver exposes no hwmon temperature. Cached for
-    10 s so the dashboard poll does not hammer the GPU; querying can wake a
-    runtime-suspended dGPU on hybrid laptops, so it is skipped when the
-    driver module is not loaded.
+    The proprietary NVIDIA driver exposes no hwmon temperature. nvidia-smi
+    is queried only when the PCI device is runtime-"active" (already
+    awake) and the proprietary module is loaded; cached for 10 s. Sets
+    GPU_REASON whenever it returns None. OMEN_GPU_SMI=0 disables it.
     """
     import shutil
     import time
-    if not os.path.exists("/proc/driver/nvidia/version"):
+    global GPU_REASON
+    if os.environ.get("OMEN_GPU_SMI") == "0":
+        GPU_REASON = "nvidia-smi fallback disabled (OMEN_GPU_SMI=0)"
+        return None
+    state = _nvidia_pci_state()
+    if state is None:
+        GPU_REASON = "No NVIDIA GPU found on the PCI bus"
+        return None
+    if state != "active":
+        GPU_REASON = ("GPU is %s (runtime power state); not waking it "
+                      "to read the temperature" % state)
+        return None
+    if not os.path.exists(NV_PROC):
+        GPU_REASON = ("GPU is awake but exposes no temperature sensor "
+                      "through the loaded driver (proprietary NVIDIA "
+                      "driver not loaded)")
         return None
     exe = shutil.which("nvidia-smi")
     if not exe:
+        GPU_REASON = "nvidia-smi not found"
         return None
     now = time.monotonic()
     if now - _NV_CACHE[0] < 10.0:
@@ -155,11 +204,14 @@ def _read_nvidia_smi_mc():
     _NV_CACHE[0] = now
     try:
         out = subprocess.run(
-            [exe, "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"],
+            [exe, "--query-gpu=temperature.gpu",
+             "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=3).stdout.strip()
         _NV_CACHE[1] = int(out.splitlines()[0]) * 1000
+        GPU_REASON = ""
     except (OSError, ValueError, IndexError, subprocess.SubprocessError):
         _NV_CACHE[1] = None
+        GPU_REASON = "nvidia-smi did not return a temperature"
     return _NV_CACHE[1]
 
 
