@@ -855,6 +855,15 @@ class OmenWindow(Adw.ApplicationWindow):
     def _on_nav(self, button, name):
         if button.get_active():
             self.stack.set_visible_child_name(name)
+            self._sync_footer()
+
+    def _sync_footer(self):
+        # Lighting footer: on the Lighting page, or anywhere while changes
+        # are staged so they are never hidden.
+        f = getattr(self, "_footer", None)
+        if f is not None:
+            f.set_visible(self.stack.get_visible_child_name() == "lighting"
+                          or bool(getattr(self, "_staged_writes", None)))
 
     def _apply(self, rel, value, revert=None):
         if self._loading:
@@ -986,6 +995,7 @@ class OmenWindow(Adw.ApplicationWindow):
     def _lighting_dirty(self, dirty=True):
         for b in getattr(self, "_dirty_btns", ()):
             b.set_sensitive(bool(dirty))
+        self._sync_footer()
 
     def _on_discard(self, _b):
         self._staged_writes = {}
