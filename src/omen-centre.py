@@ -102,6 +102,11 @@ RAIL_CSS = b"""
 .omen-tab:hover { color: #ffffff; }
 .omen-tab:checked { color: #ffffff;
   border-bottom: 2px solid #d92642; }
+.omen-studio list.boxed-list { background-color: #0e0e11;
+  border-radius: 0; border: none; box-shadow: none; }
+.omen-studio row, .omen-studio row:hover { background-color: #0e0e11; }
+.omen-studio list.boxed-list list.boxed-list { background-color: #1a1a1f; }
+.omen-studio list.boxed-list list.boxed-list row { background-color: #1a1a1f; }
 .canvas-controls { background-color: alpha(#101016, 0.92);
   border-radius: 8px; padding: 4px 6px; margin-bottom: 10px; }
 .pcolor-swatch { border-radius: 6px; min-width: 44px; min-height: 30px;
@@ -472,7 +477,7 @@ class LightCanvas(Gtk.DrawingArea):
         self._on_zone_click = on_zone_click
         self._band_rects = []
         self.set_content_width(420)
-        self.set_content_height(310)
+        self.set_content_height(470)
         self.set_draw_func(self._draw)
         click = Gtk.GestureClick()
         click.connect("released", self._on_click)
@@ -1050,10 +1055,11 @@ class OmenWindow(Adw.ApplicationWindow):
     # here map to what the hardware can really do (base colors + one effect)
 
     def _build_lighting(self):
-        page = self._page("lighting", maxw=980)
+        page = self._page("lighting", maxw=1600)
         self._staged_writes = getattr(self, "_staged_writes", {})
 
         tgrp = Adw.PreferencesGroup()
+        tgrp.add_css_class("omen-studio")
         page.add(tgrp)
         self._ls_stack = Gtk.Stack()
         self._ls_stack.set_transition_type(
@@ -1087,7 +1093,7 @@ class OmenWindow(Adw.ApplicationWindow):
 
         # Layers panel (left)
         layers = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        layers.set_size_request(172, -1)
+        layers.set_size_request(190, -1)
         lcap = Gtk.Label(label="Layers")
         lcap.add_css_class("heading")
         lcap.set_halign(Gtk.Align.START)
