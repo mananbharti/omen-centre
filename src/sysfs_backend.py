@@ -169,3 +169,54 @@ def read_mem():
         return total, total - avail
     except (OSError, ValueError, KeyError):
         return None, None
+
+
+def read_storage():
+    """Used fraction of the root filesystem, 0-100."""
+    try:
+        st = os.statvfs("/")
+        total = st.f_blocks * st.f_frsize
+        avail = st.f_bavail * st.f_frsize
+        if total <= 0:
+            return None
+        return 100.0 * (total - avail) / total
+    except OSError:
+        return None
+
+
+class _NetSampler:
+    def __init__(self):
+        self._prev = None
+
+    def sample(self):
+        try:
+            rx = tx = 0
+            with open("/proc/net/dev") as fh:
+                for line in fh:
+                    if ":" not in line:
+                        continue
+                    iface, rest = line.split(":", 1)
+                    if iface.strip() == "lo":
+                        continue
+                    fields = rest.split()
+                    rx += int(fields[0])
+                    tx += int(fields[8])
+            import time
+            now = time.monotonic()
+        except (OSError, ValueError, IndexError):
+            return None
+        prev, self._prev = self._prev, (now, rx, tx)
+        if prev is None:
+            return None
+        dt = now - prev[0]
+        if dt <= 0:
+            return None
+        return ((rx - prev[1]) / 1024.0 / dt, (tx - prev[2]) / 1024.0 / dt)
+
+
+_net_sampler = _NetSampler()
+
+
+def read_net_kbps():
+    """(download, upload) KB/s since the previous sample."""
+    return _net_sampler.sample()

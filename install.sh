@@ -10,6 +10,8 @@ fi
 install -d /usr/share/omen-centre
 install -m 0755 src/omen-centre.py /usr/share/omen-centre/omen-centre.py
 install -m 0644 src/sysfs_backend.py /usr/share/omen-centre/sysfs_backend.py
+install -m 0644 src/games_backend.py /usr/share/omen-centre/games_backend.py
+install -m 0644 src/omenkey_backend.py /usr/share/omen-centre/omenkey_backend.py
 
 install -d /usr/libexec/omen-centre
 install -o root -g root -m 0755 helper/omenctl /usr/libexec/omen-centre/omenctl
