@@ -925,6 +925,20 @@ class OmenWindow(Adw.ApplicationWindow):
             b.set_sensitive(False)
             b.set_tooltip_text(be.FAN_RESTRICTED_MSG)
 
+    def _paint_all_swatch(self, ab, zones):
+        """Shared colour if the four zones agree, else a labelled 'Mixed'."""
+        if len(set(zones)) == 1:
+            ab.set_label("")
+            ab.set_tooltip_text("Applies to all zones - click for picker")
+            self._paint_button(ab, zones[0])
+            ab._omen_hex = zones[0]
+        else:
+            ab.set_label("Mixed")
+            ab.set_tooltip_text("Zones currently differ; picking a colour "
+                                "here sets all four zones to it")
+            self._paint_button(ab, "3A3A3A")
+            ab._omen_hex = "FFFFFF"
+
     def _page(self, name, maxw=920):
         # Adw.PreferencesPage scrolls internally; wrapping it in another
         # ScrolledWindow double-scrolls and breaks pointer hit-testing on
@@ -1087,12 +1101,10 @@ class OmenWindow(Adw.ApplicationWindow):
                 cur = "FFFFFF"
             self._paint_button(b, cur)
             b._omen_hex = cur
-        # 'all' is write-only in effect (it can be stale); show the shared
-        # zone colour when the four zones agree, else neutral white.
-        zs = {b._omen_hex for b in self.zone_btns}
-        allcur = zs.pop() if len(zs) == 1 else "FFFFFF"
-        self._paint_button(self.allzone_btn, allcur)
-        self.allzone_btn._omen_hex = allcur
+            if hasattr(self, "kb_preview"):
+                self.kb_preview.set_zone_color(i, cur)
+        self._paint_all_swatch(self.allzone_btn,
+                               [b._omen_hex for b in self.zone_btns])
         self.brightness_scale.set_value(
             be.read_int("rgb_zones/brightness") or 100)
         mode = be.read("rgb_zones/animation_mode") or "static"
@@ -1258,22 +1270,14 @@ class OmenWindow(Adw.ApplicationWindow):
         plab.add_css_class("dim-label")
         plab.add_css_class("caption")
         rpanel.append(plab)
-        zones = [be.read_hex("rgb_zones/zone0%d" % i) or ""
+        zones = [be.read_hex("rgb_zones/zone0%d" % i) or "FFFFFF"
                  for i in range(4)]
-        if all(len(z) == 6 for z in zones) and len(set(zones)) == 1:
-            allcur = zones[0]
-        else:
-            allcur = (be.read_hex("rgb_zones/all") or "FFFFFF")
-        if len(allcur) != 6:
-            allcur = "FFFFFF"
         ab = Gtk.Button()
         ab.add_css_class("swatch")
         ab.add_css_class("pcolor-swatch")
         ab.set_halign(Gtk.Align.START)
-        self._paint_button(ab, allcur)
-        ab._omen_hex = allcur
+        self._paint_all_swatch(ab, zones)
         self.allzone_btn = ab
-        ab.set_tooltip_text("Applies to all zones - click for picker")
         ab.connect("clicked", self._on_zone_clicked, "rgb_zones/all", ab)
         rpanel.append(ab)
 
@@ -1311,9 +1315,7 @@ class OmenWindow(Adw.ApplicationWindow):
         self.zone_btns = []
         for i in range(4):
             rel = "rgb_zones/zone0%d" % i
-            current = (be.read(rel) or "FFFFFF").upper()
-            if len(current) != 6:
-                current = "FFFFFF"
+            current = be.read_hex(rel) or "FFFFFF"
             b = Gtk.Button()
             b.add_css_class("zone-box")
             b.set_size_request(64, 36)
