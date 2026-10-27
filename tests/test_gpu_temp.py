@@ -21,7 +21,7 @@ class GpuTempTest(unittest.TestCase):
         os.environ["OMEN_PCI_ROOT"] = self.pci
         os.environ["OMEN_NV_PROC"] = self.proc
         os.environ["PATH"] = self.bin + os.pathsep + os.environ["PATH"]
-        os.environ.pop("OMEN_GPU_SMI", None)
+        os.environ["OMEN_GPU_SMI"] = "1"
         import sysfs_backend
         self.be = importlib.reload(sysfs_backend)
 
@@ -72,11 +72,11 @@ class GpuTempTest(unittest.TestCase):
         self.assertIsNone(self.be._read_nvidia_smi_mc())
         self.assertIn("did not return", self.be.GPU_REASON)
 
-    def test_kill_switch(self):
+    def test_default_off_never_calls_smi(self):
         self._gpu("active")
         open(self.proc, "w").write("x")
         self._smi()
-        os.environ["OMEN_GPU_SMI"] = "0"
+        os.environ.pop("OMEN_GPU_SMI")
         self.assertIsNone(self.be._read_nvidia_smi_mc())
         self.assertFalse(os.path.exists(self.marker))
 

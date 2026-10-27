@@ -8,6 +8,7 @@ Dev/test mode: set OMEN_SYSFS_ROOT to a mock tree and OMEN_DIRECT_WRITE=1
 to write without pkexec.
 """
 import os
+import re
 import subprocess
 
 SYSFS_ROOT = os.environ.get(
@@ -44,6 +45,19 @@ def read(rel):
         return None
 
 
+def read_hex(rel):
+    """Colour attribute as 'RRGGBB' uppercase, or None.
+
+    The driver reports colours as '#rrggbb' (seen on a real Omen 16);
+    writes take plain 'RRGGBB'.
+    """
+    v = read(rel)
+    if v is None:
+        return None
+    v = v.strip().lstrip("#").upper()
+    return v if re.fullmatch(r"[0-9A-F]{6}", v) else None
+
+
 def read_int(rel):
     v = read(rel)
     if v is None:
@@ -54,6 +68,16 @@ def read_int(rel):
         return None
 
 
+def fan_restricted():
+    """True while the root-owned lighting-only marker exists."""
+    return os.path.exists(os.environ.get(
+        "OMEN_LIGHTING_ONLY_MARKER", "/etc/omen-centre/lighting-only"))
+
+
+FAN_RESTRICTED_MSG = ("Fan and power controls are unavailable: this install "
+                      "is lighting-only (fan writes are refused).")
+
+
 def set_value(rel, value):
     """Write a validated value via the privileged helper.
 
@@ -62,6 +86,8 @@ def set_value(rel, value):
     if os.environ.get("OMEN_READ_ONLY") == "1":
         raise BackendError("Read-only mode (OMEN_READ_ONLY=1): "
                            "nothing was written.")
+    if rel.startswith("fan/") and fan_restricted():
+        raise BackendError(FAN_RESTRICTED_MSG)
     if DIRECT_WRITE:
         cmd = ["python3", OMENCTL, "set", rel, str(value)]
         env = dict(os.environ, OMEN_SYSFS_ROOT=SYSFS_ROOT)
@@ -173,13 +199,16 @@ def _read_nvidia_smi_mc():
     The proprietary NVIDIA driver exposes no hwmon temperature. nvidia-smi
     is queried only when the PCI device is runtime-"active" (already
     awake) and the proprietary module is loaded; cached for 10 s. Sets
-    GPU_REASON whenever it returns None. OMEN_GPU_SMI=0 disables it.
+    GPU_REASON whenever it returns None. Opt-in only (OMEN_GPU_SMI=1); the active-state
+    check narrows but cannot rule out a wake race.
     """
     import shutil
     import time
     global GPU_REASON
-    if os.environ.get("OMEN_GPU_SMI") == "0":
-        GPU_REASON = "nvidia-smi fallback disabled (OMEN_GPU_SMI=0)"
+    if os.environ.get("OMEN_GPU_SMI") != "1":
+        GPU_REASON = ("GPU temperature polling is off by default (the "
+                      "proprietary driver has no sensor; nvidia-smi could "
+                      "wake the GPU). Start with OMEN_GPU_SMI=1 to opt in")
         return None
     state = _nvidia_pci_state()
     if state is None:

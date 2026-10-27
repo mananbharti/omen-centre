@@ -1,6 +1,7 @@
 #!/bin/sh
 # Omen Control Centre installer (Fedora). Run with: sudo sh install.sh
-# Add --lighting-only to make the helper refuse all fan/* writes.
+# --lighting-only: helper refuses all fan/* writes (kept across upgrades).
+# --allow-fan: lift that restriction explicitly.
 # Installs files only. It never writes to the driver or changes any setting.
 set -eu
 
@@ -27,13 +28,22 @@ install -m 0644 polkit/com.mananbharti.omencentre.policy \
 install -m 0644 data/com.mananbharti.OmenCentre.desktop \
     /usr/share/applications/com.mananbharti.OmenCentre.desktop
 
-if [ "${1:-}" = "--lighting-only" ]; then
-    install -d -m 0755 /etc/omen-centre
-    : > /etc/omen-centre/lighting-only
-    echo "Lighting-only mode: fan writes refused by the helper."
-else
-    rm -f /etc/omen-centre/lighting-only
-fi
+# The lighting-only marker is never removed implicitly (upgrades keep it).
+# Only an explicit --allow-fan removes it.
+case "${1:-}" in
+    --lighting-only)
+        install -d -m 0755 /etc/omen-centre
+        : > /etc/omen-centre/lighting-only
+        echo "Lighting-only mode: fan writes refused by the helper." ;;
+    --allow-fan)
+        rm -f /etc/omen-centre/lighting-only
+        echo "Fan writes allowed (marker removed)." ;;
+    "")
+        if [ -e /etc/omen-centre/lighting-only ]; then
+            echo "Kept existing lighting-only restriction (use --allow-fan to lift)."
+        fi ;;
+    *) echo "unknown option: $1" >&2; exit 1 ;;
+esac
 
 echo "Installed. Launch 'Omen Control Centre' from the app grid."
 echo "Writes ask for your password once, then stay authorized for a few minutes."

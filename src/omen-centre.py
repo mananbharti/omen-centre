@@ -860,6 +860,8 @@ class OmenWindow(Adw.ApplicationWindow):
         self._build_vitals()
         self._build_games()
         self._build_settings()
+        if be.fan_restricted():
+            self._restrict_fan_ui()
 
         self._loading = False
         start = os.environ.get("OMEN_START_PAGE", "home")
@@ -901,6 +903,31 @@ class OmenWindow(Adw.ApplicationWindow):
 
     def _toast(self, text):
         self.toasts.add_toast(Adw.Toast(title=text))
+
+    def _restrict_fan_ui(self):
+        """Lighting-only install: grey out every fan/power control and say why."""
+        def walk(w):
+            c = w.get_first_child()
+            while c is not None:
+                yield c
+                yield from walk(c)
+                c = c.get_next_sibling()
+        for name in ("performance",):
+            clamp = self.stack.get_child_by_name(name)
+            for w in walk(clamp):
+                if isinstance(w, (Gtk.Button, Gtk.ToggleButton, Gtk.Entry)):
+                    w.set_sensitive(False)
+                    w.set_tooltip_text(be.FAN_RESTRICTED_MSG)
+                elif isinstance(w, CurveGraph):
+                    w.set_sensitive(False)
+            page = clamp.get_child()
+            g = Adw.PreferencesGroup(
+                title="Fan controls unavailable",
+                description=be.FAN_RESTRICTED_MSG)
+            page.add(g)
+        for b in getattr(self, "power_buttons", {}).values():
+            b.set_sensitive(False)
+            b.set_tooltip_text(be.FAN_RESTRICTED_MSG)
 
     def _page(self, name, maxw=920):
         # Adw.PreferencesPage scrolls internally; wrapping it in another
@@ -1059,14 +1086,15 @@ class OmenWindow(Adw.ApplicationWindow):
     def _reload_lighting_ui(self):
         self._loading = True
         for i, b in enumerate(self.zone_btns):
-            cur = (be.read("rgb_zones/zone0%d" % i) or "FFFFFF").upper()
+            cur = be.read_hex("rgb_zones/zone0%d" % i) or "FFFFFF"
             if len(cur) != 6:
                 cur = "FFFFFF"
             self._paint_button(b, cur)
             b._omen_hex = cur
-        allcur = (be.read("rgb_zones/all") or "FFFFFF").upper()
-        if len(allcur) != 6:
-            allcur = "FFFFFF"
+        # 'all' is write-only in effect (it can be stale); show the shared
+        # zone colour when the four zones agree, else neutral white.
+        zs = {b._omen_hex for b in self.zone_btns}
+        allcur = zs.pop() if len(zs) == 1 else "FFFFFF"
         self._paint_button(self.allzone_btn, allcur)
         self.allzone_btn._omen_hex = allcur
         self.brightness_scale.set_value(
@@ -1234,12 +1262,12 @@ class OmenWindow(Adw.ApplicationWindow):
         plab.add_css_class("dim-label")
         plab.add_css_class("caption")
         rpanel.append(plab)
-        zones = [(be.read("rgb_zones/zone0%d" % i) or "").upper()
+        zones = [be.read_hex("rgb_zones/zone0%d" % i) or ""
                  for i in range(4)]
         if all(len(z) == 6 for z in zones) and len(set(zones)) == 1:
             allcur = zones[0]
         else:
-            allcur = (be.read("rgb_zones/all") or "FFFFFF").upper()
+            allcur = (be.read_hex("rgb_zones/all") or "FFFFFF")
         if len(allcur) != 6:
             allcur = "FFFFFF"
         ab = Gtk.Button()
