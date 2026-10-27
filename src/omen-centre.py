@@ -580,7 +580,7 @@ class LightCanvas(Gtk.DrawingArea):
                 kx = kb_x + kgap + ci * (kw + kgap)
                 ky = kb_y + kgap + ri * (kh + kgap)
                 # backlight glow bed
-                cr.set_source_rgba(zr, zg, zb, 0.85)
+                cr.set_source_rgba(zr, zg, zb, 1.0)
                 self._rounded(cr, kx, ky, kw, kh, 2.0)
                 cr.fill()
                 # keycap face (dark, lets the glow rim show)
@@ -608,6 +608,17 @@ class LightCanvas(Gtk.DrawingArea):
             cr.set_source_rgb(0.11, 0.11, 0.13)
             self._rounded(cr, cx - tp_w / 2.0, kb_y + kb_h + 6,
                           tp_w, tp_h, 4)
+            cr.fill()
+        # selection frame with corner handles around the whole device
+        fx, fy = deck_x - 8, scr_y - 8
+        fw, fh = deck_w + 16, (deck_y + deck_h + 8) - fy
+        cr.set_source_rgba(1, 1, 1, 0.55)
+        cr.set_line_width(1.2)
+        cr.rectangle(fx, fy, fw, fh)
+        cr.stroke()
+        cr.set_source_rgba(0.75, 0.75, 0.78, 1)
+        for hx, hy in ((fx, fy), (fx + fw, fy), (fx, fy + fh), (fx + fw, fy + fh)):
+            cr.arc(hx, hy, 4.5, 0, 6.2832)
             cr.fill()
         cr.restore()
         # keep hit-test rects in device coordinates
@@ -1119,6 +1130,19 @@ class OmenWindow(Adw.ApplicationWindow):
         coverlay = Gtk.Overlay()
         coverlay.set_child(self.kb_preview)
         coverlay.set_vexpand(True)
+        zsel = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        zl = Gtk.Label(label="Zone Selection")
+        zl.add_css_class("heading")
+        zsel.append(zl)
+        for _ic, _tip in (("input-mouse-symbolic", "Select zone (click a key band)"),
+                          ("view-fullscreen-symbolic", "Box select: not available, driver exposes 4 fixed zones")):
+            _b = Gtk.Button.new_from_icon_name(_ic)
+            _b.add_css_class("flat")
+            _b.set_tooltip_text(_tip)
+            if "Box select" in _tip:
+                _b.set_sensitive(False)
+            zsel.append(_b)
+        canvas_wrap.append(zsel)
         canvas_wrap.append(coverlay)
         zbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         zbar.set_halign(Gtk.Align.CENTER)
