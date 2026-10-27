@@ -74,13 +74,13 @@ PRESET_COLORS = [
 ]
 
 RAIL_CSS = b"""
-.omen-rail { background-color: #15151c; }
+.omen-rail { background-color: #050507; }
 .omen-rail-button { border-radius: 8px; margin: 2px 8px; padding: 8px 4px;
   color: #b9b9c6; }
 .omen-rail-button:hover { background-color: #23232e; }
 .omen-rail-button:checked { background-color: #343444; color: #ffffff; }
-.omen-rail-title { color: #ffffff; font-weight: 800; font-size: 18px;
-  letter-spacing: 1px; margin: 12px 0 2px 0; }
+.omen-rail-title { color: #d92642; font-weight: 800; font-size: 20px;
+  margin: 14px 0 14px 0; }
 .omen-rail-sub { color: #6d6d7d; font-size: 11px; margin-bottom: 10px; }
 .vital-card { background-color: alpha(@card_bg_color, 0.55);
   border-radius: 12px; padding: 12px; }
@@ -787,19 +787,17 @@ class OmenWindow(Adw.ApplicationWindow):
         # overlay so toasts never cover the buttons
         self._footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self._footer.add_css_class("apply-footer")
-        self._footer.set_visible(False)
+        self._footer.set_visible(True)
         outer.append(self._footer)
 
         # ---- OGH-style left rail ----
         rail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         rail.add_css_class("omen-rail")
-        rail.set_size_request(170, -1)
-        title = Gtk.Label(label="OMEN", xalign=0.5)
+        rail.set_size_request(64, -1)
+        title = Gtk.Label(label="\u25c6", xalign=0.5)
         title.add_css_class("omen-rail-title")
+        title.set_tooltip_text("OMEN Control Centre")
         rail.append(title)
-        sub = Gtk.Label(label="CONTROL CENTRE", xalign=0.5)
-        sub.add_css_class("omen-rail-sub")
-        rail.append(sub)
         body.append(rail)
 
         self.stack = Gtk.Stack()
@@ -817,9 +815,8 @@ class OmenWindow(Adw.ApplicationWindow):
             b.set_has_frame(False)
             inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             inner.append(Gtk.Image.new_from_icon_name(icon))
-            lab = Gtk.Label(label=label)
-            lab.add_css_class("caption")
-            inner.append(lab)
+            b.set_tooltip_text(label)
+            b.update_property([Gtk.AccessibleProperty.LABEL], [label])
             b.set_child(inner)
             b.connect("toggled", self._on_nav, name)
             if first is None:
@@ -980,9 +977,8 @@ class OmenWindow(Adw.ApplicationWindow):
         self._lighting_dirty(True)
 
     def _lighting_dirty(self, dirty=True):
-        footer = getattr(self, "_footer", None)
-        if footer is not None:
-            footer.set_visible(dirty)
+        for b in getattr(self, "_dirty_btns", ()):
+            b.set_sensitive(bool(dirty))
 
     def _on_discard(self, _b):
         self._staged_writes = {}
@@ -1128,12 +1124,15 @@ class OmenWindow(Adw.ApplicationWindow):
         zbar.set_halign(Gtk.Align.CENTER)
         zbar.set_valign(Gtk.Align.END)
         zbar.add_css_class("canvas-controls")
-        zm = Gtk.Button(label="-")
+        zm = Gtk.Button.new_from_icon_name("zoom-out-symbolic")
         zm.connect("clicked", lambda _b: self._ls_zoom(-0.25))
         self._ls_zoom_label = Gtk.Label(label="100%")
-        zp = Gtk.Button(label="+")
+        zp = Gtk.Button.new_from_icon_name("zoom-in-symbolic")
         zp.connect("clicked", lambda _b: self._ls_zoom(0.25))
-        zf = Gtk.Button(label="Fit")
+        zf = Gtk.Button.new_from_icon_name("zoom-fit-best-symbolic")
+        zf.set_tooltip_text("Fit")
+        zm.set_tooltip_text("Zoom out")
+        zp.set_tooltip_text("Zoom in")
         zf.connect("clicked", lambda _b: self._ls_zoom(0.0, reset=True))
         for wdg in (zm, self._ls_zoom_label, zp, zf):
             zbar.append(wdg)
@@ -1414,6 +1413,11 @@ class OmenWindow(Adw.ApplicationWindow):
         applyb = Gtk.Button(label="Apply")
         applyb.add_css_class("suggested-action")
         applyb.connect("clicked", self._on_apply_lighting)
+        self._dirty_btns = (discard, applyb)
+        discard.set_sensitive(False)
+        applyb.set_sensitive(False)
+        restore.set_tooltip_text(
+            "Stages default zone colors; nothing is written until Apply")
         self._apply_bar.append(restore)
         sp = Gtk.Box()
         sp.set_hexpand(True)
