@@ -601,18 +601,36 @@ class LightCanvas(Gtk.DrawingArea):
         cr.set_source_rgb(0.12, 0.12, 0.14)
         self._rounded(cr, scr_x, scr_y, scr_w, scr_h, 8)
         cr.fill()
-        cr.set_source_rgb(0.16, 0.17, 0.22)
-        self._rounded(cr, scr_x + 6, scr_y + 6, scr_w - 12, scr_h - 12, 5)
+        import cairo
+        sx, sy, sw_, sh_ = scr_x + 6, scr_y + 6, scr_w - 12, scr_h - 12
+        cr.set_source_rgb(0.04, 0.04, 0.05)
+        self._rounded(cr, sx, sy, sw_, sh_, 5)
         cr.fill()
-        # red diamond accent on screen (generic stylized mark) with glow
-        dxc, dyc, dr = cx, scr_y + scr_h / 2.0, min(9.0, scr_h * 0.12)
-        cr.set_source_rgba(0.85, 0.15, 0.25, 0.6)
-        cr.move_to(dxc, dyc - dr)
-        cr.line_to(dxc + dr, dyc)
-        cr.line_to(dxc, dyc + dr)
-        cr.line_to(dxc - dr, dyc)
-        cr.close_path()
-        cr.fill()
+        # dark wallpaper with a red glow behind a stylized diamond mark
+        dxc, dyc = cx, sy + sh_ / 2.0
+        dr = min(14.0, sh_ * 0.2)
+        glow = cairo.RadialGradient(dxc, dyc, 1, dxc, dyc, sw_ * 0.32)
+        glow.add_color_stop_rgba(0, 0.85, 0.12, 0.2, 0.55)
+        glow.add_color_stop_rgba(1, 0.85, 0.12, 0.2, 0.0)
+        cr.save()
+        self._rounded(cr, sx, sy, sw_, sh_, 5)
+        cr.clip()
+        cr.set_source(glow)
+        cr.paint()
+        cr.restore()
+        for scale, alpha, lw_ in ((1.0, 0.95, 2.4), (0.55, 0.9, 0)):
+            r = dr * scale
+            cr.set_source_rgba(0.9, 0.16, 0.26, alpha)
+            cr.move_to(dxc, dyc - r)
+            cr.line_to(dxc + r, dyc)
+            cr.line_to(dxc, dyc + r)
+            cr.line_to(dxc - r, dyc)
+            cr.close_path()
+            if lw_:
+                cr.set_line_width(lw_)
+                cr.stroke()
+            else:
+                cr.fill()
         # hinge
         cr.set_source_rgb(0.10, 0.10, 0.12)
         cr.rectangle(cx - scr_w / 2.0, scr_y + scr_h, scr_w, 5)
