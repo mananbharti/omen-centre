@@ -514,7 +514,7 @@ class LightCanvas(Gtk.DrawingArea):
         cr.translate(w / 2.0, h / 2.0)
         cr.scale(self.zoom, self.zoom)
         cr.translate(-w / 2.0, -h / 2.0)
-        lw = min(w * 0.62, 430.0)
+        lw = min(w * 0.66, 640.0)
         scr_w, scr_h = lw * 0.78, h * 0.34
         cx = w / 2.0
         scr_x, scr_y = cx - scr_w / 2.0, h * 0.09
@@ -525,8 +525,11 @@ class LightCanvas(Gtk.DrawingArea):
         cr.set_source_rgb(0.16, 0.17, 0.22)
         self._rounded(cr, scr_x + 6, scr_y + 6, scr_w - 12, scr_h - 12, 5)
         cr.fill()
-        # small red diamond accent on screen (generic stylized mark)
-        dxc, dyc, dr = cx, scr_y + scr_h / 2.0, 7.0
+        # red diamond accent on screen (generic stylized mark) with glow
+        dxc, dyc, dr = cx, scr_y + scr_h / 2.0, min(16.0, scr_h * 0.22)
+        cr.set_source_rgba(0.85, 0.15, 0.25, 0.25)
+        cr.arc(dxc, dyc, dr * 2.6, 0, 6.2832)
+        cr.fill()
         cr.set_source_rgba(0.85, 0.15, 0.25, 0.9)
         cr.move_to(dxc, dyc - dr)
         cr.line_to(dxc + dr, dyc)
