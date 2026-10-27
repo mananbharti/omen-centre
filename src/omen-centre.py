@@ -920,11 +920,7 @@ class OmenWindow(Adw.ApplicationWindow):
                     w.set_tooltip_text(be.FAN_RESTRICTED_MSG)
                 elif isinstance(w, CurveGraph):
                     w.set_sensitive(False)
-            page = clamp.get_child()
-            g = Adw.PreferencesGroup(
-                title="Fan controls unavailable",
-                description=be.FAN_RESTRICTED_MSG)
-            page.add(g)
+            self._perf_dgrp.set_description(be.FAN_RESTRICTED_MSG)
         for b in getattr(self, "power_buttons", {}).values():
             b.set_sensitive(False)
             b.set_tooltip_text(be.FAN_RESTRICTED_MSG)
@@ -1805,6 +1801,7 @@ class OmenWindow(Adw.ApplicationWindow):
         page = self._page("performance")
 
         dgrp = Adw.PreferencesGroup(title="Performance Control")
+        self._perf_dgrp = dgrp
         page.add(dgrp)
         cards = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         cards.set_margin_top(6)
