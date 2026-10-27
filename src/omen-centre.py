@@ -189,7 +189,11 @@ class OmenWindow(Adw.ApplicationWindow):
         self._build_about()
 
         self._loading = False
+        start_page = os.environ.get("OMEN_START_PAGE")
+        if start_page:
+            self.stack.set_visible_child_name(start_page)
         GLib.timeout_add_seconds(2, self._refresh_live)
+        GLib.timeout_add(400, self._refresh_live)
 
     # ---- helpers -------------------------------------------------------
 
@@ -280,6 +284,7 @@ class OmenWindow(Adw.ApplicationWindow):
         self.brightness_scale.set_size_request(240, -1)
         self.brightness_scale.set_draw_value(True)
         self.brightness_scale.set_value(be.read_int("rgb_zones/brightness") or 100)
+        self._brightness_timer = None
         self.brightness_scale.connect("value-changed", self._on_brightness)
         brow.add_suffix(self.brightness_scale)
         bgrp.add(brow)
@@ -307,13 +312,14 @@ class OmenWindow(Adw.ApplicationWindow):
         self.anim_row.connect("notify::selected", self._on_anim_mode)
         agrp.add(self.anim_row)
 
-        self.speed_row = Adw.SpinRow(
-            title="Speed", subtitle="1 (slow) to 10 (fast)",
-            adjustment=Gtk.Adjustment(
-                value=be.read_int("rgb_zones/animation_speed") or 5,
-                lower=1, upper=10, step_increment=1))
-        self.speed_row.connect("notify::value", self._on_anim_speed)
-        agrp.add(self.speed_row)
+        speed_row = Adw.ActionRow(title="Speed", subtitle="1 (slow) to 10 (fast)")
+        self.speed_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(
+            value=be.read_int("rgb_zones/animation_speed") or 5,
+            lower=1, upper=10, step_increment=1, page_increment=2))
+        self.speed_spin.set_valign(Gtk.Align.CENTER)
+        self.speed_spin.connect("value-changed", self._on_anim_speed)
+        speed_row.add_suffix(self.speed_spin)
+        agrp.add(speed_row)
 
         ggrp = Adw.PreferencesGroup(
             title="Gradient animation",
@@ -354,7 +360,17 @@ class OmenWindow(Adw.ApplicationWindow):
         self._toast("Zones lit red, green, blue, white (zone 0 to 3)")
 
     def _on_brightness(self, scale):
-        self._apply("rgb_zones/brightness", str(int(scale.get_value())))
+        if self._loading:
+            return
+        if self._brightness_timer is not None:
+            GLib.source_remove(self._brightness_timer)
+        self._brightness_timer = GLib.timeout_add(
+            350, self._apply_brightness, int(scale.get_value()))
+
+    def _apply_brightness(self, value):
+        self._brightness_timer = None
+        self._apply("rgb_zones/brightness", str(value))
+        return GLib.SOURCE_REMOVE
 
     def _on_brightness_lock(self, sw, _p):
         self._apply("rgb_zones/brightness_lock", "1" if sw.get_active() else "0",
@@ -364,8 +380,8 @@ class OmenWindow(Adw.ApplicationWindow):
         mode = be.ANIMATION_MODES[row.get_selected()]
         self._apply("rgb_zones/animation_mode", mode)
 
-    def _on_anim_speed(self, row, _p):
-        self._apply("rgb_zones/animation_speed", str(int(row.get_value())))
+    def _on_anim_speed(self, spin):
+        self._apply("rgb_zones/animation_speed", str(int(spin.get_value())))
 
     def _on_gradient(self, _b):
         self._apply("rgb_zones/gradient_config",
@@ -376,7 +392,7 @@ class OmenWindow(Adw.ApplicationWindow):
     def _build_fans(self):
         page = Adw.PreferencesPage()
         self.stack.add_titled(page, "fans", "Fans")
-        page.set_icon_name("preferences-system-power-symbolic")
+        page.set_icon_name("power-profile-performance-symbolic")
 
         grp = Adw.PreferencesGroup(title="Fan speed")
         page.add(grp)
@@ -427,16 +443,22 @@ class OmenWindow(Adw.ApplicationWindow):
             parts = pl.split()
             if len(parts) == 2 and all(p.isdigit() for p in parts):
                 pl1, pl2 = int(parts[0]), int(parts[1])
-        self.pl1_row = Adw.SpinRow(
-            title="PL1 (sustained)", subtitle="watts",
-            adjustment=Gtk.Adjustment(value=pl1, lower=15, upper=200,
-                                      step_increment=5))
-        self.pl2_row = Adw.SpinRow(
-            title="PL2 (turbo)", subtitle="watts, must be >= PL1",
-            adjustment=Gtk.Adjustment(value=pl2, lower=15, upper=200,
-                                      step_increment=5))
-        pgrp.add(self.pl1_row)
-        pgrp.add(self.pl2_row)
+        pl1_row = Adw.ActionRow(
+            title="PL1 (sustained)", subtitle="watts")
+        self.pl1_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(
+            value=pl1, lower=15, upper=200, step_increment=5,
+            page_increment=10))
+        self.pl1_spin.set_valign(Gtk.Align.CENTER)
+        pl1_row.add_suffix(self.pl1_spin)
+        pgrp.add(pl1_row)
+        pl2_row = Adw.ActionRow(
+            title="PL2 (turbo)", subtitle="watts, must be >= PL1")
+        self.pl2_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(
+            value=pl2, lower=15, upper=200, step_increment=5,
+            page_increment=10))
+        self.pl2_spin.set_valign(Gtk.Align.CENTER)
+        pl2_row.add_suffix(self.pl2_spin)
+        pgrp.add(pl2_row)
         btnrow = Adw.ActionRow()
         applyb = Gtk.Button(label="Apply limits")
         applyb.add_css_class("suggested-action")
@@ -495,8 +517,8 @@ class OmenWindow(Adw.ApplicationWindow):
         self._apply("fan/thermal_profile", profile)
 
     def _on_power_limits(self, _b):
-        pl1 = int(self.pl1_row.get_value())
-        pl2 = int(self.pl2_row.get_value())
+        pl1 = int(self.pl1_spin.get_value())
+        pl2 = int(self.pl2_spin.get_value())
         if pl2 < pl1:
             self._toast("PL2 must be greater than or equal to PL1")
             return
@@ -517,7 +539,7 @@ class OmenWindow(Adw.ApplicationWindow):
     def _build_vitals(self):
         page = Adw.PreferencesPage()
         self.stack.add_titled(page, "vitals", "Vitals")
-        page.set_icon_name("utilities-system-monitor-symbolic")
+        page.set_icon_name("applications-system-symbolic")
 
         grp = Adw.PreferencesGroup(title="Temperatures")
         page.add(grp)
@@ -621,6 +643,9 @@ class OmenApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID,
                          flags=Gio.ApplicationFlags.FLAGS_NONE)
+        if os.environ.get("OMEN_FORCE_DARK") == "1":
+            self.props.style_manager.set_color_scheme(
+                Adw.ColorScheme.FORCE_DARK)
 
     def do_activate(self):
         win = self.props.active_window
