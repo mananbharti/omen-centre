@@ -609,17 +609,13 @@ class LightCanvas(Gtk.DrawingArea):
             self._rounded(cr, cx - tp_w / 2.0, kb_y + kb_h + 6,
                           tp_w, tp_h, 4)
             cr.fill()
-        # selection frame with corner handles around the whole device
+        # device bounds outline (decorative; no resize handles - none are functional)
         fx, fy = deck_x - 8, scr_y - 8
         fw, fh = deck_w + 16, (deck_y + deck_h + 8) - fy
         cr.set_source_rgba(1, 1, 1, 0.55)
         cr.set_line_width(1.2)
         cr.rectangle(fx, fy, fw, fh)
         cr.stroke()
-        cr.set_source_rgba(0.75, 0.75, 0.78, 1)
-        for hx, hy in ((fx, fy), (fx + fw, fy), (fx, fy + fh), (fx + fw, fy + fh)):
-            cr.arc(hx, hy, 4.5, 0, 6.2832)
-            cr.fill()
         cr.restore()
         # keep hit-test rects in device coordinates
         k = self.zoom * self._vs
