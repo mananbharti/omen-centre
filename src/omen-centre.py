@@ -24,6 +24,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import light_engine as le
 import sysfs_backend as be
 
 try:
@@ -443,6 +444,7 @@ class LightCanvas(Gtk.DrawingArea):
         super().__init__()
         self.zone_colors = ["FFFFFF"] * 4
         self.selected = -1
+        self.zoom = 1.0
         self._on_zone_click = on_zone_click
         self._band_rects = []
         self.set_content_width(420)
@@ -484,7 +486,11 @@ class LightCanvas(Gtk.DrawingArea):
             cr.line_to(w, gy)
             cr.stroke()
             gy += step
-        # laptop geometry
+        # laptop geometry (zoom around center)
+        cr.save()
+        cr.translate(w / 2.0, h / 2.0)
+        cr.scale(self.zoom, self.zoom)
+        cr.translate(-w / 2.0, -h / 2.0)
         lw = min(w * 0.62, 430.0)
         scr_w, scr_h = lw * 0.78, h * 0.34
         cx = w / 2.0
@@ -565,6 +571,18 @@ class LightCanvas(Gtk.DrawingArea):
             self._rounded(cr, cx - tp_w / 2.0, kb_y + kb_h + 6,
                           tp_w, tp_h, 4)
             cr.fill()
+        cr.restore()
+        # keep hit-test rects in device coordinates
+        w, h = self.get_width(), self.get_height()
+        cxw, cyh = w / 2.0, h / 2.0
+        self._band_rects = [
+            ((bx - cxw) * self.zoom + cxw, (by - cyh) * self.zoom + cyh,
+             bw * self.zoom, bh * self.zoom)
+            for (bx, by, bw, bh) in self._band_rects]
+
+    def set_zoom(self, z):
+        self.zoom = max(0.5, min(3.0, z))
+        self.queue_draw()
 
     def _on_click(self, g, n, x, y):
         for i, (bx, by, bw, bh) in enumerate(self._band_rects):
@@ -805,11 +823,11 @@ class OmenWindow(Adw.ApplicationWindow):
     def _toast(self, text):
         self.toasts.add_toast(Adw.Toast(title=text))
 
-    def _page(self, name):
+    def _page(self, name, maxw=640):
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         clamp = Adw.Clamp()
-        clamp.set_maximum_size(640)
+        clamp.set_maximum_size(maxw)
         page = Adw.PreferencesPage()
         scroll.set_child(clamp)
         clamp.set_child(page)
@@ -992,7 +1010,7 @@ class OmenWindow(Adw.ApplicationWindow):
     # here map to what the hardware can really do (base colors + one effect)
 
     def _build_lighting(self):
-        page = self._page("lighting")
+        page = self._page("lighting", maxw=980)
         self._staged_writes = getattr(self, "_staged_writes", {})
 
         tgrp = Adw.PreferencesGroup()
@@ -1026,31 +1044,47 @@ class OmenWindow(Adw.ApplicationWindow):
         lcap.set_halign(Gtk.Align.START)
         layers.append(lcap)
         newbtn = Gtk.Button(label="+ Create New Layer")
-        newbtn.set_sensitive(False)
         newbtn.set_tooltip_text(
-            "The installed driver supports a base color layer plus one "
-            "effect layer - extra layers would have no hardware to run on")
+            "Software layers: composited live on the canvas preview. "
+            "Hardware output stays 4-zone static via Apply.")
+        newbtn.connect("clicked", self._on_ls_new_layer)
         layers.append(newbtn)
-        lbox = Gtk.ListBox()
-        lbox.add_css_class("boxed-list")
-        lbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        self._ls_layer_rows = {}
-        for key, title, sub in (
-                ("base", "Base", "Zone colors (4 hardware zones)"),
-                ("effect", "Effect", "One animation + speed")):
-            r = Adw.ActionRow(title=title, subtitle=sub)
-            r.set_activatable(True)
-            r.connect("activated", self._on_ls_layer, key)
-            lbox.append(r)
-            self._ls_layer_rows[key] = r
-        lbox.select_row(self._ls_layer_rows["base"])
-        layers.append(lbox)
+        self._ls_lbox = Gtk.ListBox()
+        self._ls_lbox.add_css_class("boxed-list")
+        self._ls_lbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        layers.append(self._ls_lbox)
+        self._ls_editor = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                                  spacing=6)
+        layers.append(self._ls_editor)
         body.append(layers)
 
         # Canvas (center)
+        canvas_wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                              spacing=2)
+        canvas_wrap.set_hexpand(True)
         self.kb_preview = LightCanvas(self._on_preview_zone)
         self.kb_preview.set_hexpand(True)
-        body.append(self.kb_preview)
+        canvas_wrap.append(self.kb_preview)
+        zbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        zbar.set_halign(Gtk.Align.CENTER)
+        zm = Gtk.Button(label="-")
+        zm.connect("clicked", lambda _b: self._ls_zoom(-0.25))
+        self._ls_zoom_label = Gtk.Label(label="100%")
+        zp = Gtk.Button(label="+")
+        zp.connect("clicked", lambda _b: self._ls_zoom(0.25))
+        zf = Gtk.Button(label="Fit")
+        zf.connect("clicked", lambda _b: self._ls_zoom(0.0, reset=True))
+        for wdg in (zm, self._ls_zoom_label, zp, zf):
+            zbar.append(wdg)
+        snap = Gtk.Button(label="Stage static snapshot")
+        snap.set_tooltip_text(
+            "Stages the current preview as a static 4-zone color set - "
+            "press Apply to write. Animations stay preview-only; the "
+            "driver interface is not used for streaming.")
+        snap.connect("clicked", self._on_ls_snapshot)
+        zbar.append(snap)
+        canvas_wrap.append(zbar)
+        body.append(canvas_wrap)
 
         # Right effects panel
         rpanel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -1201,6 +1235,15 @@ class OmenWindow(Adw.ApplicationWindow):
         if _t in ("layout", "effects"):
             self._ls_stack.set_visible_child_name(_t)
 
+        # ---------------- software compositor (preview only) ----------------
+        self._ls_comp = le.Compositor(
+            [b._omen_hex for b in self.zone_btns])
+        self._ls_selected = None  # selected software layer or None (Base)
+        self._ls_rebuild_layers()
+        GLib.timeout_add(100, self._ls_preview_tick)
+        if os.environ.get("OMEN_LS_DEMO"):
+            GLib.timeout_add_seconds(2, self._ls_demo)
+
         # ---------------- shared controls ----------------
         ctrl = Adw.PreferencesGroup()
         page.add(ctrl)
@@ -1278,6 +1321,187 @@ class OmenWindow(Adw.ApplicationWindow):
         barrow.set_child(self._apply_bar)
         ctrl.add(barrow)
 
+    def _ls_zoom(self, delta, reset=False):
+        z = 1.0 if reset else self.kb_preview.zoom + delta
+        self.kb_preview.set_zoom(z)
+        self._ls_zoom_label.set_label("%d%%" % round(self.kb_preview.zoom * 100))
+
+    def _on_ls_new_layer(self, _b):
+        n = len(self._ls_comp.layers) + 1
+        layer = self._ls_comp.add_layer(
+            le.Layer("Layer %d" % n, ltype="wave"))
+        self._ls_selected = layer
+        self._ls_rebuild_layers()
+
+    def _ls_rebuild_layers(self):
+        lbox = self._ls_lbox
+        while True:
+            row = lbox.get_row_at_index(0)
+            if row is None:
+                break
+            lbox.remove(row)
+        base = Adw.ActionRow(title="Base",
+                             subtitle="Zone colors (4 hardware zones)")
+        base.set_activatable(True)
+        base.connect("activated", self._on_ls_layer_row, None)
+        lbox.append(base)
+        for layer in self._ls_comp.layers:
+            r = Adw.ActionRow(
+                title=layer.name,
+                subtitle="%s - zones %s" % (
+                    layer.ltype,
+                    ",".join("Z%d" % z for z in layer.zones)))
+            r.set_activatable(True)
+            r.connect("activated", self._on_ls_layer_row, layer)
+            eye = Gtk.ToggleButton()
+            eye.add_css_class("flat")
+            eye.set_child(Gtk.Image.new_from_icon_name(
+                "view-reveal-symbolic" if layer.enabled
+                else "view-conceal-symbolic"))
+            eye.set_active(layer.enabled)
+            eye.set_tooltip_text("Show/hide layer in preview")
+            eye.connect("toggled", self._on_ls_eye, layer)
+            r.add_suffix(eye)
+            dele = Gtk.Button()
+            dele.add_css_class("flat")
+            dele.set_child(Gtk.Image.new_from_icon_name(
+                "user-trash-symbolic"))
+            dele.set_tooltip_text("Delete layer")
+            dele.connect("clicked", self._on_ls_delete, layer)
+            r.add_suffix(dele)
+            lbox.append(r)
+            if layer is self._ls_selected:
+                lbox.select_row(r)
+        self._ls_rebuild_editor()
+
+    def _on_ls_layer_row(self, _row, layer):
+        self._ls_selected = layer
+        if layer is None:
+            self._ls_stack.set_visible_child_name("layout")
+        self._ls_rebuild_editor()
+
+    def _on_ls_eye(self, btn, layer):
+        layer.enabled = btn.get_active()
+        btn.set_child(Gtk.Image.new_from_icon_name(
+            "view-reveal-symbolic" if layer.enabled
+            else "view-conceal-symbolic"))
+        self._ls_rebuild_layers()
+
+    def _on_ls_delete(self, _btn, layer):
+        self._ls_comp.remove_layer(layer)
+        if self._ls_selected is layer:
+            self._ls_selected = None
+        self._ls_rebuild_layers()
+
+    def _ls_rebuild_editor(self):
+        box = self._ls_editor
+        while True:
+            ch = box.get_first_child()
+            if ch is None:
+                break
+            box.remove(ch)
+        layer = self._ls_selected
+        if layer is None:
+            return
+        cap = Gtk.Label(label="Edit: " + layer.name)
+        cap.add_css_class("heading")
+        cap.set_halign(Gtk.Align.START)
+        box.append(cap)
+        dd = Gtk.DropDown.new_from_strings(
+            [t.capitalize() for t in le.LAYER_TYPES])
+        dd.set_selected(le.LAYER_TYPES.index(layer.ltype))
+        dd.connect("notify::selected", self._on_ls_type, layer)
+        box.append(dd)
+        for attr, label in (("primary", "Primary"), ("secondary", "Secondary")):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            lab = Gtk.Label(label=label)
+            lab.set_hexpand(True)
+            lab.set_halign(Gtk.Align.START)
+            row.append(lab)
+            b = Gtk.Button()
+            b.add_css_class("zone-box")
+            b.set_size_request(32, 22)
+            self._paint_button(b, getattr(layer, attr))
+            b._omen_hex = getattr(layer, attr)
+            b.connect("clicked", self._on_ls_color, layer, attr)
+            row.append(b)
+            box.append(row)
+        sp = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 5)
+        sp.set_value(layer.speed)
+        sp.set_tooltip_text("Speed")
+        sp.connect("value-changed", self._on_ls_speed, layer)
+        box.append(sp)
+        chips = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        chips.set_halign(Gtk.Align.CENTER)
+        for z in range(4):
+            t = Gtk.ToggleButton(label="Z%d" % z)
+            t.set_active(z in layer.zones)
+            t.connect("toggled", self._on_ls_zone_chip, layer, z)
+            chips.append(t)
+        box.append(chips)
+
+    def _on_ls_type(self, dd, _p, layer):
+        layer.ltype = le.LAYER_TYPES[dd.get_selected()]
+
+    def _on_ls_color(self, b, layer, attr):
+        picker = ColorPicker(
+            getattr(layer, attr),
+            lambda h: self._ls_color_done(layer, attr, h, b))
+        picker.set_parent(b)
+        picker.popup()
+
+    def _ls_color_done(self, layer, attr, hexs, b):
+        setattr(layer, attr, hexs)
+        self._paint_button(b, hexs)
+
+    def _on_ls_speed(self, scale, layer):
+        layer.speed = int(scale.get_value())
+
+    def _on_ls_zone_chip(self, btn, layer, z):
+        zones = set(layer.zones)
+        if btn.get_active():
+            zones.add(z)
+        elif len(zones) > 1:
+            zones.discard(z)
+        else:
+            btn.set_active(True)  # keep at least one zone
+            return
+        layer.zones = tuple(sorted(zones))
+
+    def _on_ls_snapshot(self, _b):
+        out = self._ls_comp.tick()
+        for i in range(4):
+            self._stage("rgb_zones/zone0%d" % i, out[i])
+        self._toast("Static snapshot staged - press Apply to write")
+
+    def _ls_demo(self):
+        w = self._ls_comp.add_layer(
+            le.Layer("Wave", ltype="wave", primary="FF8800",
+                     secondary="220044", speed=60))
+        b = self._ls_comp.add_layer(
+            le.Layer("Breath", ltype="breathing", primary="00CCFF",
+                     speed=35, zones=(0, 3)))
+        self._ls_selected = w
+        self._ls_rebuild_layers()
+        return False
+
+    def _ls_preview_tick(self):
+        comp = getattr(self, "_ls_comp", None)
+        kb = getattr(self, "kb_preview", None)
+        if comp is None or kb is None:
+            return True
+        for i, b in enumerate(getattr(self, "zone_btns", [])):
+            comp.set_base(i, b._omen_hex)
+        if comp.layers:
+            out = comp.tick()
+        else:
+            out = [b._omen_hex for b in getattr(self, "zone_btns", [])]
+        if out != getattr(self, "_ls_last_out", None):
+            self._ls_last_out = list(out)
+            for i in range(min(4, len(out))):
+                kb.set_zone_color(i, out[i])
+        return True
+
     def _on_effect_dd(self, dd, _pspec):
         if self._loading:
             return
@@ -1285,10 +1509,6 @@ class OmenWindow(Adw.ApplicationWindow):
         idx = dd.get_selected()
         if 0 <= idx < len(keys):
             self._stage("rgb_zones/animation_mode", keys[idx])
-
-    def _on_ls_layer(self, _row, key):
-        self._ls_stack.set_visible_child_name(
-            "effects" if key == "effect" else "layout")
 
 
     def _on_preview_zone(self, i):
@@ -1884,6 +2104,16 @@ class OmenWindow(Adw.ApplicationWindow):
                      "voltage control; OGH itself offers no "
                      "overclocking on this notebook class. Needs a "
                      "device check before any claims."))
+        mgrp.add(Adw.ActionRow(
+            title="Software layers: preview-only",
+            subtitle="Light Studio-style multi-layer compositing runs "
+                     "live on the canvas preview. Not streamed to the "
+                     "keyboard: per the driver source, every zone write "
+                     "force-stops the firmware animation and does a "
+                     "synchronous state save to disk, and sustained "
+                     "hardware write-rate tolerance is not validated. "
+                     "Use 'Stage static snapshot' for a static 4-zone "
+                     "result."))
 
     def _on_theme(self, row, _p):
         theme = ("auto", "light", "dark")[row.get_selected()]

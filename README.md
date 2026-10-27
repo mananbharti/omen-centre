@@ -35,6 +35,24 @@ without HP's display/turbo caps).
 - Brightness lock (stops the desktop dimming the keyboard when idle)
 - "Identify zones" button: lights zones red/green/blue/white so you can see
   which key area each zone covers (mapping varies by keyboard)
+- Light Studio-style editor: Layout/Effects tabs, gridded laptop canvas
+  with clickable zone bands, zoom controls, and software layers
+
+**Software layers (preview-only by design)**
+- "+ Create New Layer" stacks any number of software effect layers
+  (static, breathing, wave, pulse, rainbow, gradient, sparkle, candle),
+  each with its own colors, speed and zone mask, composited live on the
+  canvas preview
+- Layers are NOT streamed to the keyboard. Per the driver source
+  (OmenLinux/omen-rgb-keyboard): every zone sysfs write force-stops the
+  firmware animation (restoring all 4 zones) and does a synchronous state
+  save to /var/lib/omen-rgb-keyboard/state, so sustained userspace
+  streaming would mean ~5x WMI traffic plus dozens of disk writes per
+  second. Hardware-rate tolerance of the interface is also not validated.
+  Smooth multi-layer animation therefore stays on the preview canvas.
+- "Stage static snapshot" writes the current composite as a static
+  4-zone color set through the normal staged Apply flow - no silent
+  flattening: the UI says the animation itself stays preview-only
 
 **Fans & performance**
 - Live CPU / GPU fan RPM
