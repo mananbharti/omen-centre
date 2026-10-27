@@ -186,6 +186,7 @@ Screenshots below use a mock sysfs tree in read-only mode, so readings show
 ![Home](docs/screenshots/home.png)
 ![Lighting](docs/screenshots/lighting.png)
 ![Performance](docs/screenshots/performance.png)
+![Software layers: duplicate, rename, show/hide, delete (preview only)](docs/screenshots/layers.png)
 
 ## Zone order
 

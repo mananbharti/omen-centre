@@ -849,7 +849,7 @@ class OmenWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app)
         self.set_title("Omen Control Centre")
-        self.set_default_size(1120, 760)
+        self.set_default_size(1180, 760)
         self._loading = True
 
         provider = Gtk.CssProvider()
@@ -1251,7 +1251,7 @@ class OmenWindow(Adw.ApplicationWindow):
 
         # Layers panel (left)
         layers = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        layers.set_size_request(190, -1)
+        layers.set_size_request(240, -1)
         lcap = Gtk.Label(label="Layers")
         lcap.add_css_class("heading")
         lcap.set_halign(Gtk.Align.START)
@@ -1634,11 +1634,15 @@ class OmenWindow(Adw.ApplicationWindow):
         for layer in self._ls_comp.layers:
             r = Adw.ActionRow(
                 title=layer.name,
-                subtitle="%s - zones %s" % (
-                    layer.ltype,
-                    ",".join("Z%d" % ZONE_ORDER[z] for z in layer.zones)))
+                subtitle=layer.ltype.capitalize() + (
+                    "" if len(layer.zones) == 4 else " \u00b7 " + " ".join(
+                        "Z%d" % ZONE_ORDER[z] for z in layer.zones)))
+            r.set_title_lines(1)
+            r.set_subtitle_lines(1)
             r.set_activatable(True)
             r.connect("activated", self._on_ls_layer_row, layer)
+            sfx = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+            sfx.set_valign(Gtk.Align.CENTER)
             eye = Gtk.ToggleButton()
             eye.add_css_class("flat")
             eye.set_child(Gtk.Image.new_from_icon_name(
@@ -1647,14 +1651,28 @@ class OmenWindow(Adw.ApplicationWindow):
             eye.set_active(layer.enabled)
             eye.set_tooltip_text("Show/hide layer in preview")
             eye.connect("toggled", self._on_ls_eye, layer)
-            r.add_suffix(eye)
+            sfx.append(eye)
+            ed = Gtk.Button()
+            ed.add_css_class("flat")
+            ed.set_child(Gtk.Image.new_from_icon_name(
+                "document-edit-symbolic"))
+            ed.set_tooltip_text("Edit layer")
+            ed.connect("clicked", self._on_ls_layer_row, layer)
+            sfx.append(ed)
+            cp = Gtk.Button()
+            cp.add_css_class("flat")
+            cp.set_child(Gtk.Image.new_from_icon_name("edit-copy-symbolic"))
+            cp.set_tooltip_text("Duplicate layer")
+            cp.connect("clicked", self._on_ls_duplicate, layer)
+            sfx.append(cp)
             dele = Gtk.Button()
             dele.add_css_class("flat")
             dele.set_child(Gtk.Image.new_from_icon_name(
                 "user-trash-symbolic"))
             dele.set_tooltip_text("Delete layer")
             dele.connect("clicked", self._on_ls_delete, layer)
-            r.add_suffix(dele)
+            sfx.append(dele)
+            r.add_suffix(sfx)
             lbox.append(r)
             if layer is self._ls_selected:
                 lbox.select_row(r)
@@ -1673,6 +1691,23 @@ class OmenWindow(Adw.ApplicationWindow):
             else "view-conceal-symbolic"))
         self._ls_rebuild_layers()
 
+    def _on_ls_duplicate(self, _btn, layer):
+        copy = layer.clone(layer.name + " copy")
+        idx = self._ls_comp.layers.index(layer) + 1
+        self._ls_comp.layers.insert(idx, copy)
+        self._ls_selected = copy
+        self._ls_rebuild_layers()
+
+    def _on_ls_rename(self, entry, layer):
+        name = entry.get_text().strip()
+        if name:
+            layer.name = name
+            # update the row title without rebuilding (keeps entry focus)
+            for i, l in enumerate(self._ls_comp.layers, start=1):
+                row = self._ls_lbox.get_row_at_index(i)
+                if l is layer and row is not None:
+                    row.set_title(name)
+
     def _on_ls_delete(self, _btn, layer):
         self._ls_comp.remove_layer(layer)
         if self._ls_selected is layer:
@@ -1689,16 +1724,19 @@ class OmenWindow(Adw.ApplicationWindow):
         layer = self._ls_selected
         if layer is None:
             return
-        cap = Gtk.Label(label="Edit: " + layer.name)
-        cap.add_css_class("heading")
-        cap.set_halign(Gtk.Align.START)
-        box.append(cap)
+        name = Gtk.Entry()
+        name.set_text(layer.name)
+        name.set_tooltip_text("Layer name")
+        name.connect("changed", self._on_ls_rename, layer)
+        box.append(name)
         dd = Gtk.DropDown.new_from_strings(
             [t.capitalize() for t in le.LAYER_TYPES])
         dd.set_selected(le.LAYER_TYPES.index(layer.ltype))
         dd.connect("notify::selected", self._on_ls_type, layer)
         box.append(dd)
         for attr, label in (("primary", "Primary"), ("secondary", "Secondary")):
+            if attr == "secondary" and not layer.uses_secondary():
+                continue  # this effect never uses it; do not show a dead control
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
             lab = Gtk.Label(label=label)
             lab.set_hexpand(True)
@@ -1728,6 +1766,9 @@ class OmenWindow(Adw.ApplicationWindow):
 
     def _on_ls_type(self, dd, _p, layer):
         layer.ltype = le.LAYER_TYPES[dd.get_selected()]
+        # Secondary colour row depends on the type; rebuild after this
+        # signal returns (the dropdown is being torn down).
+        GLib.idle_add(self._ls_rebuild_layers)
 
     def _on_ls_color(self, b, layer, attr):
         picker = ColorPicker(

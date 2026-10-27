@@ -41,6 +41,10 @@ def _scale(rgb, k):
     return (int(rgb[0] * k), int(rgb[1] * k), int(rgb[2] * k))
 
 
+# Layer types whose output actually uses the secondary colour.
+SECONDARY_TYPES = ("wave", "gradient")
+
+
 class Layer:
     """One software layer: an effect with colors, speed and a zone mask."""
 
@@ -58,6 +62,13 @@ class Layer:
         self.speed = max(0, min(100, int(speed)))
         self.zones = tuple(sorted(set(zones)))
         self.enabled = enabled
+
+    def uses_secondary(self):
+        return self.ltype in SECONDARY_TYPES
+
+    def clone(self, name):
+        return Layer(name, self.ltype, self.primary, self.secondary,
+                     self.speed, self.zones, self.enabled)
 
     def covers(self, z):
         return z in self.zones

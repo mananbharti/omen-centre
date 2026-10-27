@@ -90,3 +90,20 @@ class CompositorTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LayerOpsTest(unittest.TestCase):
+    def test_secondary_only_for_types_that_use_it(self):
+        import light_engine as le
+        for t in le.LAYER_TYPES:
+            self.assertEqual(le.Layer("x", t).uses_secondary(),
+                             t in ("wave", "gradient"))
+
+    def test_clone_is_independent(self):
+        import light_engine as le
+        a = le.Layer("a", "gradient", zones=(0, 1))
+        b = a.clone("b")
+        b.primary = "123456"
+        b.zones = (3,)
+        self.assertEqual((a.name, a.primary, a.zones),
+                         ("a", "FF8800", (0, 1)))
