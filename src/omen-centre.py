@@ -364,21 +364,31 @@ class OmenWindow(Adw.ApplicationWindow):
         self.home_cpu_temp = vital_card("CPU TEMP")
         self.home_gpu_temp = vital_card("GPU TEMP")
         self.home_cpu_load = vital_card("CPU USE")
-        self.home_fans = vital_card("FANS")
-        for box, _ in (self.home_cpu_temp, self.home_gpu_temp,
-                       self.home_cpu_load, self.home_fans):
-            cards.append(box)
-        grp.add(cards)
+        self.home_cpu_fan = vital_card("CPU FAN")
+        self.home_gpu_fan = vital_card("GPU FAN")
+        grid = Gtk.Grid()
+        grid.set_row_spacing(10)
+        grid.set_column_spacing(10)
+        grid.set_margin_top(6)
+        grid.set_margin_bottom(6)
+        hcards = [self.home_cpu_temp, self.home_gpu_temp,
+                  self.home_cpu_load, self.home_cpu_fan,
+                  self.home_gpu_fan]
+        for idx, (box, _) in enumerate(hcards):
+            box.set_hexpand(True)
+            grid.attach(box, idx % 3, idx // 3, 1, 1)
+        grp.add(grid)
 
         pgrp = Adw.PreferencesGroup(
             title="Power mode",
-            description="Balanced is the default. ECO minimizes fan "
-                        "noise and power; Performance favors gaming.")
+            description="Balanced is the default. Silent minimizes fan "
+                        "noise (roughly OMEN's ECO, without its display "
+                        "and turbo caps); Performance favors gaming.")
         page.add(pgrp)
         self.power_buttons = {}
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         box.set_homogeneous(True)
-        for mode, profile in (("ECO", "silent"), ("Balanced", "normal"),
+        for mode, profile in (("Silent", "silent"), ("Balanced", "normal"),
                               ("Performance", "performance")):
             b = Gtk.ToggleButton(label=mode)
             b.connect("toggled", self._on_power_mode, profile)
@@ -622,12 +632,13 @@ class OmenWindow(Adw.ApplicationWindow):
 
         mgrp = Adw.PreferencesGroup(
             title="Power mode",
-            description="Balanced stays until you switch. ECO minimizes "
-                        "fan noise and power; Performance favors gaming. "
-                        "Matches the system power menu.")
+            description="Balanced stays until you switch. Silent "
+                        "minimizes fan noise (like OMEN's ECO, without "
+                        "its display/turbo caps); Performance favors "
+                        "gaming. Matches the system power menu.")
         page.add(mgrp)
         modes = Gtk.StringList()
-        for m in ("ECO", "Balanced", "Performance"):
+        for m in ("Silent", "Balanced", "Performance"):
             modes.append(m)
         self.thermal_combo = Adw.ComboRow(title="Mode", model=modes)
         current = (be.read("fan/thermal_profile") or "normal").lower()
@@ -743,15 +754,36 @@ class OmenWindow(Adw.ApplicationWindow):
         self._sync_profile_controls(profile)
 
     def _on_thermal_control(self, button, label):
-        if not button.get_active():
+        if self._loading or not button.get_active():
             return
+        curve_supported = "MANUAL" in self.tc_buttons
         if label == "AUTO":
+            # Verified on-device sequence (2026-10-27 incident): writing
+            # max_fan 0 alone leaves the EC at its last state (fans can
+            # sit stopped); re-applying the thermal profile restores the
+            # preset fan behavior and restarts the curve worker.
             self._apply("fan/max_fan", "0")
-            self._apply("fan/fan_curve_enable", "0")
+            profile = (be.read("fan/thermal_profile") or "normal").lower()
+            if profile not in be.THERMAL_PROFILES:
+                profile = "normal"
+            self._apply("fan/thermal_profile", profile)
+            back_max = be.read("fan/max_fan")
+            back_profile = be.read("fan/thermal_profile")
+            if back_max == "0" and back_profile == profile:
+                self._toast("AUTO restored (%s profile)" % profile)
+            else:
+                self._toast("AUTO restore uncertain: max_fan=%r "
+                            "profile=%r - check fans" % (
+                                back_max, back_profile))
         elif label == "MAX":
             self._apply("fan/max_fan", "1")
         elif label == "MANUAL":
+            if not curve_supported:
+                return
             self._apply("fan/max_fan", "0")
+            points = self.curve_entry.get_text().strip()
+            if points:
+                self._apply("fan/fan_curve", points)
             self._apply("fan/fan_curve_enable", "1")
 
     def _on_curve_apply(self, _b):
@@ -913,8 +945,6 @@ class OmenWindow(Adw.ApplicationWindow):
 
     def _refresh_live(self):
         cpu_rpm, gpu_rpm = be.read_rpm()
-        rpm_s = ("%d/%d RPM" % (cpu_rpm, gpu_rpm)
-                 if cpu_rpm is not None and gpu_rpm is not None else "n/a")
 
         ct = be.read_cpu_temp_mc()
         ct_s = ("%.0f°C" % (ct / 1000.0)) if ct is not None else "n/a"
@@ -930,7 +960,10 @@ class OmenWindow(Adw.ApplicationWindow):
         self.home_cpu_temp[1].set_label(ct_s)
         self.home_gpu_temp[1].set_label(gt_s)
         self.home_cpu_load[1].set_label(load_s)
-        self.home_fans[1].set_label(rpm_s)
+        self.home_cpu_fan[1].set_label(
+            ("%d RPM" % cpu_rpm) if cpu_rpm is not None else "n/a")
+        self.home_gpu_fan[1].set_label(
+            ("%d RPM" % gpu_rpm) if gpu_rpm is not None else "n/a")
 
         self.perf_cpu_temp[1].set_label(ct_s)
         self.perf_gpu_temp[1].set_label(gt_s)
