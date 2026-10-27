@@ -2,7 +2,8 @@
 
 Native Linux control app for HP Omen laptops running the
 [OmenLinux omen-rgb-keyboard](https://github.com/OmenLinux/omen-rgb-keyboard)
-kernel driver. Built and tested on Fedora 44 Workstation (HP Omen 16-wf1xxx).
+kernel driver. Developed for Fedora 44 Workstation on an HP Omen 16-wf1xxx;
+see [Verification status](#verification-status) for what is and is not tested.
 
 Python 3 + GTK 4 + Libadwaita. No dependencies beyond a standard Fedora
 Workstation install. Follows the system light/dark style.
@@ -93,7 +94,7 @@ Windows-only, but most OGH *functionality* has native Linux paths:
 | In-game FPS overlay | Native tool: MangoHud (Fedora repo) |
 | Per-game performance boost | Native tool: GameMode (Fedora repo) |
 | Network Booster (per-app priority) | Possible natively (cgroup v2 + nftables/tc); not yet implemented; HP's own impl is Windows-only |
-| Light Studio (custom effect canvas) | Not yet implemented; basic animations covered |
+| Light Studio (custom effect canvas) | Partly: Layout/Effects editor with preview-only layers |
 | OMEN AI, Shop Games, Deals, Gallery | HP cloud/storefront services - not applicable to a local control app |
 | GPU MUX / display mode | Per-app GPU offload works natively (PRIME, wiki.archlinux.org/title/PRIME); whole-display switching is a BIOS option on this model class (unit specifics unverified) |
 | Overclocking/undervolting | Intel HX is an unlocked SKU, but HP notebook BIOSes usually lock voltage control and OGH offers no OC on this notebook class; unverified on this unit |
@@ -115,8 +116,11 @@ Windows-only, but most OGH *functionality* has native Linux paths:
 ## Install
 
 ```bash
-sudo sh install.sh
+sudo sh install.sh                    # full
+sudo sh install.sh --lighting-only    # lighting only; fan/performance refused
 ```
+
+Before the first hardware write read [docs/FIRST-WRITE-TEST.md](docs/FIRST-WRITE-TEST.md).
 
 Then launch **Omen Control Centre** from the app grid.
 
@@ -159,13 +163,39 @@ pkexec. Never set it in production - the packaged app always goes
 through pkexec with per-action admin authentication, and the privileged
 write path still needs its own on-device test.
 
-## Verification status (honest)
+## Verification status
 
-Verified on the target machine (2026-10-27): module load, all-zone color,
-single-zone color, max-fan ramp and release, thermal-profile write, RPM
-reads. Driver-supported but not yet exercised on this machine: zones 1-3,
-brightness slider, animations, gradient, brightness lock, power limits,
-persistence across reboot, cooling response under sustained load.
+What has and has not been proven. Nothing here is claimed "pixel perfect":
+the layout follows OMEN Gaming Hub screenshots, not its binary.
+
+| Area | Status |
+| --- | --- |
+| Unit tests (helper allowlist, validators, install, colour parsing, zone order) | Pass, run against a mock sysfs tree |
+| GUI rendering | Checked in a virtual display (screenshots below); also seen running on Fedora 44 / GNOME 50 |
+| Privileged write path (`pkexec` + polkit + `omenctl`) | Staged and mocked only. Not yet proven end to end on real hardware |
+| Keyboard colour writes on real hardware | Not confirmed by this project yet |
+| Fan, thermal and power-limit writes | Not tested. Disabled by `--lighting-only` install |
+| Zone left-to-right order | Differs by keyboard. One user reports Z0 on the physical right. Use Identify, or set `OMEN_ZONE_ORDER` |
+| Animations, gradient, brightness lock, sleep/resume, reboot persistence | Not tested on hardware |
+
+Screenshots below use a mock sysfs tree in read-only mode, so readings show
+`n/a` or placeholder values.
+
+## Screenshots
+
+![Home](docs/screenshots/home.png)
+![Lighting](docs/screenshots/lighting.png)
+![Performance](docs/screenshots/performance.png)
+
+## Zone order
+
+The four zones are numbered by the driver (`zone00` to `zone03`). Which one
+sits where on the keyboard can differ from the on-screen left-to-right
+order. **Identify zones** lights the four zones red/green/blue/white (after a
+confirmation, with your previous colours saved and restored), then asks which
+colour you see at each position and stores the order in the app config. You
+can also set it by hand, for example `OMEN_ZONE_ORDER=3,2,1,0` (screen slot 1
+to 4 mapped to hardware zones).
 
 ## License
 
