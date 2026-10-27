@@ -145,6 +145,24 @@ def save_pref(key, value):
         pass
 
 
+def load_zone_order():
+    """Display slot (left to right) -> hardware zone number.
+
+    Default is the identity. A user's keyboard can differ: Z0 was reported
+    on the physical right of a real Omen 16. Set by the Identify dialog
+    (saved as zone_order=a,b,c,d) or OMEN_ZONE_ORDER; must be a permutation.
+    """
+    raw = os.environ.get("OMEN_ZONE_ORDER") or load_pref("zone_order") or ""
+    try:
+        order = [int(x) for x in raw.split(",")]
+    except ValueError:
+        return [0, 1, 2, 3]
+    return order if sorted(order) == [0, 1, 2, 3] else [0, 1, 2, 3]
+
+
+ZONE_ORDER = load_zone_order()
+
+
 def load_theme_pref():
     return load_pref("theme", "dark")
 
@@ -181,6 +199,40 @@ def fetch_art(appid, done):
         GLib.idle_add(done, path)
 
     threading.Thread(target=work, daemon=True).start()
+
+
+class SimpleDialog(Gtk.Window):
+    """Small modal dialog that works on older libadwaita (no MessageDialog)."""
+
+    def __init__(self, parent, heading, body, responses, callback,
+                 extra=None, suggested=None):
+        super().__init__(transient_for=parent, modal=True, title=heading)
+        self.set_default_size(420, -1)
+        self.set_resizable(False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(box, "set_margin_" + m)(18)
+        h = Gtk.Label(label=heading, xalign=0)
+        h.add_css_class("title-3")
+        b = Gtk.Label(label=body, xalign=0, wrap=True)
+        box.append(h)
+        box.append(b)
+        if extra is not None:
+            box.append(extra)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_halign(Gtk.Align.END)
+        for rid, label in responses:
+            btn = Gtk.Button(label=label)
+            if rid == suggested:
+                btn.add_css_class("suggested-action")
+            btn.connect("clicked", self._done, rid, callback)
+            row.append(btn)
+        box.append(row)
+        self.set_child(box)
+
+    def _done(self, _b, rid, callback):
+        self.close()
+        callback(self, rid)
 
 
 class Gauge(Gtk.DrawingArea):
@@ -439,7 +491,7 @@ class KeyboardPreview(Gtk.DrawingArea):
             cr.select_font_face("Sans")
             cr.set_font_size(11)
             cr.move_to(x + 8, pad + 16)
-            cr.show_text("Z%d" % i)
+            cr.show_text("Z%d" % ZONE_ORDER[i])
 
     def _rounded(self, cr, x, y, w, h, r):
         cr.new_sub_path()
@@ -1066,7 +1118,7 @@ class OmenWindow(Adw.ApplicationWindow):
 
     def _on_restore_defaults(self, _b):
         for i, color in enumerate(self.DEFAULT_ZONE_COLORS):
-            self._stage("rgb_zones/zone0%d" % i, color)
+            self._stage("rgb_zones/zone0%d" % ZONE_ORDER[i], color)
             self._paint_button(self.zone_btns[i], color)
             self.zone_btns[i]._omen_hex = color
         self._stage("rgb_zones/all",
@@ -1096,7 +1148,7 @@ class OmenWindow(Adw.ApplicationWindow):
     def _reload_lighting_ui(self):
         self._loading = True
         for i, b in enumerate(self.zone_btns):
-            cur = be.read_hex("rgb_zones/zone0%d" % i) or "FFFFFF"
+            cur = be.read_hex("rgb_zones/zone0%d" % ZONE_ORDER[i]) or "FFFFFF"
             if len(cur) != 6:
                 cur = "FFFFFF"
             self._paint_button(b, cur)
@@ -1314,12 +1366,12 @@ class OmenWindow(Adw.ApplicationWindow):
         zbox.set_halign(Gtk.Align.CENTER)
         self.zone_btns = []
         for i in range(4):
-            rel = "rgb_zones/zone0%d" % i
+            rel = "rgb_zones/zone0%d" % ZONE_ORDER[i]
             current = be.read_hex(rel) or "FFFFFF"
             b = Gtk.Button()
             b.add_css_class("zone-box")
             b.set_size_request(64, 36)
-            label = Gtk.Label(label="Z%d" % i)
+            label = Gtk.Label(label="Z%d" % ZONE_ORDER[i])
             label.add_css_class("caption")
             wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             wrap.set_halign(Gtk.Align.CENTER)
@@ -1553,7 +1605,7 @@ class OmenWindow(Adw.ApplicationWindow):
                 title=layer.name,
                 subtitle="%s - zones %s" % (
                     layer.ltype,
-                    ",".join("Z%d" % z for z in layer.zones)))
+                    ",".join("Z%d" % ZONE_ORDER[z] for z in layer.zones)))
             r.set_activatable(True)
             r.connect("activated", self._on_ls_layer_row, layer)
             eye = Gtk.ToggleButton()
@@ -1637,7 +1689,7 @@ class OmenWindow(Adw.ApplicationWindow):
         chips = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         chips.set_halign(Gtk.Align.CENTER)
         for z in range(4):
-            t = Gtk.ToggleButton(label="Z%d" % z)
+            t = Gtk.ToggleButton(label="Z%d" % ZONE_ORDER[z])
             t.set_active(z in layer.zones)
             t.connect("toggled", self._on_ls_zone_chip, layer, z)
             chips.append(t)
@@ -1674,7 +1726,7 @@ class OmenWindow(Adw.ApplicationWindow):
     def _on_ls_snapshot(self, _b):
         out = self._ls_comp.tick()
         for i in range(4):
-            self._stage("rgb_zones/zone0%d" % i, out[i])
+            self._stage("rgb_zones/zone0%d" % ZONE_ORDER[i], out[i])
         # driver forces static on zone writes; stage it so the UI agrees
         # and Discard reverts it like any staged change
         self._stage("rgb_zones/animation_mode", "static")
@@ -1744,7 +1796,8 @@ class OmenWindow(Adw.ApplicationWindow):
         b = self.zone_btns[i]
         picker = ColorPicker(
             b._omen_hex,
-            lambda h: self._on_color_chosen("rgb_zones/zone0%d" % i, h, b))
+            lambda h: self._on_color_chosen(
+                "rgb_zones/zone0%d" % ZONE_ORDER[i], h, b))
         picker.set_parent(b)
         picker.popup()
 
@@ -1759,12 +1812,98 @@ class OmenWindow(Adw.ApplicationWindow):
         b._omen_hex = hexs
         self._stage(rel, hexs)
 
+    IDENT_COLORS = [("Red", "FF0000"), ("Green", "00FF00"),
+                    ("Blue", "0000FF"), ("White", "FFFFFF")]
+
     def _on_identify(self, _b):
-        for i, c in enumerate(["FF0000", "00FF00", "0000FF", "FFFFFF"]):
-            self._apply("rgb_zones/zone0%d" % i, c)
-            self._paint_button(self.zone_btns[i], c)
-            self.zone_btns[i]._omen_hex = c
-        self._toast("Zones lit red, green, blue, white (zone 0 to 3)")
+        """Light each hardware zone a different colour so the user can say
+        where it is, record the left-to-right order, then restore."""
+        if os.environ.get("OMEN_READ_ONLY") == "1":
+            self._toast("Read-only mode: identify writes to the keyboard "
+                        "and is disabled")
+            return
+        SimpleDialog(
+            self, "Identify zones",
+            "This writes four colours to the keyboard (zone 0 red, "
+            "1 green, 2 blue, 3 white) and asks for your password if "
+            "needed. Your current zone colours are saved first and "
+            "put back afterwards.",
+            [("cancel", "Cancel"), ("go", "Light the zones")],
+            self._on_identify_confirm, suggested="go").present()
+
+    def _on_identify_confirm(self, _dlg, response):
+        if response != "go":
+            return
+        self._ident_prev = [be.read_hex("rgb_zones/zone0%d" % z)
+                            for z in range(4)]
+        if None in self._ident_prev:
+            self._toast("Could not read current zone colours; nothing "
+                        "was written")
+            return
+        for z, (_n, c) in enumerate(self.IDENT_COLORS):
+            if not self._ident_write(z, c):
+                self._ident_restore()
+                return
+            if be.read_hex("rgb_zones/zone0%d" % z) != c:
+                self._ident_restore()
+                self._toast("Zone %d did not take the colour; restored" % z)
+                return
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        names = [n for n, _c in self.IDENT_COLORS]
+        self._ident_dd = []
+        for pos, title in enumerate(
+                ("Far left", "Second from left", "Third from left",
+                 "Far right")):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            lab = Gtk.Label(label=title, xalign=0)
+            lab.set_hexpand(True)
+            dd = Gtk.DropDown.new_from_strings(names)
+            dd.set_selected(pos)
+            row.append(lab)
+            row.append(dd)
+            box.append(row)
+            self._ident_dd.append(dd)
+        SimpleDialog(
+            self, "Which colour is where?",
+            "Look at the keyboard. Pick the colour you see in each "
+            "position, left to right.",
+            [("skip", "Not sure (keep current)"),
+             ("save", "Save this order")],
+            self._on_identify_answer, extra=box, suggested="save").present()
+
+    def _ident_write(self, z, c):
+        try:
+            be.set_value("rgb_zones/zone0%d" % z, c)
+            return True
+        except be.BackendError as exc:
+            self.toasts.add_toast(Adw.Toast(title="Failed: %s" % exc))
+            return False
+
+    def _ident_restore(self):
+        ok = True
+        for z, c in enumerate(getattr(self, "_ident_prev", [])):
+            if c and not self._ident_write(z, c):
+                ok = False
+        return ok
+
+    def _on_identify_answer(self, _dlg, response):
+        order = [dd.get_selected() for dd in self._ident_dd]
+        msg = "Identify finished; previous colours restored"
+        if response == "save":
+            if sorted(order) == [0, 1, 2, 3]:
+                global ZONE_ORDER
+                ZONE_ORDER = order
+                save_pref("zone_order", ",".join(str(z) for z in order))
+                msg = ("Saved zone order %s. Restart the app to redraw "
+                       "with it; previous colours restored" %
+                       ",".join("Z%d" % z for z in order))
+            else:
+                msg = ("Each colour must be used once; order not saved. "
+                       "Previous colours restored")
+        if not self._ident_restore():
+            msg = "Restore of previous colours failed - check the keyboard"
+        self._reload_lighting_ui()
+        self._toast(msg)
 
     def _on_brightness(self, scale):
         if self._loading:
