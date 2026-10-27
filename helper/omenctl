@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""Privileged sysfs writer for Omen Control Centre.
+
+Runs as root via pkexec. Every key and value is validated against a fixed
+whitelist before any write happens. No shell is ever invoked; values are
+written straight to the driver sysfs node.
+
+Usage: omenctl set <key> <value>
+"""
+import os
+import re
+import sys
+
+SYSFS_ROOT = os.environ.get(
+    "OMEN_SYSFS_ROOT", "/sys/devices/platform/omen-rgb-keyboard")
+
+ANIMATION_MODES = {
+    "static", "breathing", "rainbow", "wave", "pulse", "chase",
+    "sparkle", "candle", "aurora", "disco", "gradient", "spectrum",
+}
+THERMAL_PROFILES = {"silent", "normal", "performance"}
+
+
+def is_hex_color(v):
+    return re.fullmatch(r"[0-9A-Fa-f]{6}", v) is not None
+
+
+def is_int_range(v, lo, hi):
+    try:
+        n = int(v)
+    except ValueError:
+        return False
+    return lo <= n <= hi
+
+
+def is_power_limits(v):
+    if v == "default":
+        return True
+    parts = v.split()
+    if len(parts) != 2:
+        return False
+    try:
+        pl1, pl2 = int(parts[0]), int(parts[1])
+    except ValueError:
+        return False
+    # 0 0 is the driver's own "restore defaults" form; keep a sane ceiling.
+    return 0 <= pl1 <= pl2 <= 200  # ceiling: i7-14650HX max turbo is 157 W (Intel ARK); 200 leaves OEM headroom
+
+
+def is_fan_curve(v):
+    parts = v.split()
+    if not (2 <= len(parts) <= 8):
+        return False
+    for p in parts:
+        m = re.fullmatch(r"(\d{1,3}):(\d{1,3})", p)
+        if not m:
+            return False
+        temp, pct = int(m.group(1)), int(m.group(2))
+        if not (0 <= temp <= 120 and 0 <= pct <= 100):
+            return False
+    return True
+
+
+def is_gradient_config(v):
+    # "0,1,2:FF0000,00FF00,0000FF;3:800080,FFA500"
+    if not v or len(v) > 512:
+        return False
+    for group in v.split(";"):
+        if ":" not in group:
+            return False
+        zones, colors = group.split(":", 1)
+        if not zones or not colors:
+            return False
+        for z in zones.split(","):
+            if z not in {"0", "1", "2", "3"}:
+                return False
+        for c in colors.split(","):
+            if not is_hex_color(c):
+                return False
+    return True
+
+
+def is_zone_name(v):
+    return re.fullmatch(r"[A-Za-z0-9_\-]{1,32}", v) is not None
+
+
+def is_bool01(v):
+    return v in {"0", "1"}
+
+
+VALIDATORS = {
+    "rgb_zones/zone00": is_hex_color,
+    "rgb_zones/zone01": is_hex_color,
+    "rgb_zones/zone02": is_hex_color,
+    "rgb_zones/zone03": is_hex_color,
+    "rgb_zones/all": is_hex_color,
+    "rgb_zones/brightness": lambda v: is_int_range(v, 0, 100),
+    "rgb_zones/animation_mode": lambda v: v in ANIMATION_MODES,
+    "rgb_zones/animation_speed": lambda v: is_int_range(v, 1, 10),
+    "rgb_zones/gradient_config": is_gradient_config,
+    "rgb_zones/brightness_lock": is_bool01,
+    "rgb_zones/mute_led": is_bool01,
+    "rgb_zones/mute_state": is_bool01,
+    "fan/max_fan": is_bool01,
+    "fan/thermal_profile": lambda v: v in THERMAL_PROFILES,
+    "fan/power_limits": is_power_limits,
+    "fan/fan_curve": is_fan_curve,
+    "fan/fan_curve_enable": is_bool01,
+    "fan/fan_temp_zone": is_zone_name,
+}
+
+
+def main(argv):
+    if len(argv) != 4 or argv[1] != "set":
+        print("usage: omenctl set <key> <value>", file=sys.stderr)
+        return 2
+    key, value = argv[2], argv[3]
+    validator = VALIDATORS.get(key)
+    if validator is None:
+        print(f"unknown key: {key!r}", file=sys.stderr)
+        return 2
+    if not validator(value):
+        print(f"invalid value for {key}: {value!r}", file=sys.stderr)
+        return 2
+    path = os.path.join(SYSFS_ROOT, key)
+    try:
+        with open(path, "w") as fh:
+            fh.write(value + "\n")
+    except OSError as exc:
+        print(f"write failed: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

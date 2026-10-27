@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Omen Control Centre
+Comment=Keyboard lighting, fan and performance controls for HP Omen laptops
+Exec=/usr/share/omen-centre/omen-centre.py
+Icon=input-keyboard
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=omen;keyboard;rgb;fan;lighting;
+StartupNotify=true
