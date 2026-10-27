@@ -14,6 +14,7 @@ helper `omenctl` through pkexec (admin authentication per polkit policy).
 """
 import os
 import subprocess
+import time
 import shutil
 import sys
 
@@ -56,6 +57,16 @@ EFFECTS = [
     ("sparkle", "Sparkle"), ("candle", "Candle"), ("aurora", "Aurora"),
     ("disco", "Disco"), ("gradient", "Gradient"), ("spectrum", "Spectrum"),
 ]
+
+# Driver effect -> closest software-preview layer type. Chase, Aurora,
+# Disco and Spectrum are approximated by the nearest supported layer;
+# the firmware renders its own animation regardless.
+EFFECT_PREVIEW = {
+    "static": "static", "breathing": "breathing", "rainbow": "rainbow",
+    "wave": "wave", "pulse": "pulse", "chase": "wave",
+    "sparkle": "sparkle", "candle": "candle", "aurora": "rainbow",
+    "disco": "sparkle", "gradient": "gradient", "spectrum": "rainbow",
+}
 
 PRESET_COLORS = [
     "FF0000", "FF8000", "FFFF00", "00FF00", "00FFFF", "0000FF",
@@ -433,7 +444,7 @@ class KeyboardPreview(Gtk.DrawingArea):
         w = self.get_width()
         zw = (w - 20.0) / 4.0
         i = int((x - 10.0) / zw)
-        if 0 <= i <= 3:
+        if 0 <= i <= 3 and self._on_zone_click is not None:
             self._on_zone_click(i)
 
 
@@ -1269,6 +1280,22 @@ class OmenWindow(Adw.ApplicationWindow):
         self._loading = False
         effects_page.append(flow)
 
+        pcap = Gtk.Label(
+            label="Preview - software approximation; the keyboard\'s "
+                  "firmware renders its own animation of the selected "
+                  "effect.")
+        pcap.add_css_class("dim-label")
+        pcap.add_css_class("caption")
+        pcap.set_halign(Gtk.Align.START)
+        effects_page.append(pcap)
+        pframe = Gtk.Frame()
+        pframe.set_hexpand(True)
+        self.eff_preview = LightCanvas(None)
+        self.eff_preview.set_hexpand(True)
+        self.eff_preview.set_content_height(240)
+        pframe.set_child(self.eff_preview)
+        effects_page.append(pframe)
+
         grow = Adw.ActionRow(
             title="Gradient config",
             subtitle='Applies in Gradient mode. Format: '
@@ -1572,6 +1599,29 @@ class OmenWindow(Adw.ApplicationWindow):
             self._ls_last_out = list(out)
             for i in range(min(4, len(out))):
                 kb.set_zone_color(i, out[i])
+        ep = getattr(self, "eff_preview", None)
+        if (ep is not None and
+                self._ls_stack.get_visible_child_name() == "effects"):
+            mode = "static"
+            for k, btn in getattr(self, "effect_buttons", {}).items():
+                if btn.get_active():
+                    mode = k
+                    break
+            ltype = EFFECT_PREVIEW.get(mode, "static")
+            layer = getattr(self, "_eff_layer", None)
+            if layer is None:
+                layer = le.Layer("preview")
+                self._eff_layer = layer
+            layer.ltype = ltype
+            layer.primary = getattr(self.allzone_btn, "_omen_hex",
+                                    "FFFFFF")
+            layer.speed = int(self.speed_spin.get_value()) * 10
+            now = time.time()
+            hexes = [le._hx(layer.color_at(z, now)) for z in range(4)]
+            if hexes != getattr(self, "_eff_last", None):
+                self._eff_last = list(hexes)
+                for i in range(4):
+                    ep.set_zone_color(i, hexes[i])
         return True
 
     def _on_effect_dd(self, dd, _pspec):
