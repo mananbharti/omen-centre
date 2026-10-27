@@ -530,39 +530,43 @@ class LightCanvas(Gtk.DrawingArea):
         self._band_rects = []
         zw = kb_w / 4.0
         for i in range(4):
-            r = int(self.zone_colors[i][0:2], 16) / 255.0
-            g = int(self.zone_colors[i][2:4], 16) / 255.0
-            b = int(self.zone_colors[i][4:6], 16) / 255.0
             bx = kb_x + i * zw
             self._band_rects.append((bx, kb_y, zw, kb_h))
-            cr.set_source_rgba(r, g, b, 0.80)
-            self._rounded(cr, bx + 2, kb_y + 2, zw - 4, kb_h - 4, 4)
-            cr.fill()
-            # key grid texture
-            cr.set_source_rgba(0, 0, 0, 0.20)
-            cr.set_line_width(0.8)
-            for row in range(1, 4):
-                yy = kb_y + row * kb_h / 4.0
-                cr.move_to(bx + 5, yy)
-                cr.line_to(bx + zw - 5, yy)
-                cr.stroke()
-            for col in range(1, 5):
-                kx = bx + col * (zw - 4) / 5.0
-                cr.move_to(kx, kb_y + 4)
-                cr.line_to(kx, kb_y + kb_h - 4)
-                cr.stroke()
-            if i == self.selected:
-                cr.set_source_rgba(1, 1, 1, 0.95)
-                cr.set_line_width(1.6)
-                self._rounded(cr, bx + 1, kb_y + 1, zw - 2, kb_h - 2, 4)
-                cr.stroke()
-                cr.set_source_rgb(1, 1, 1)
-                hs = 5.0
-                for hx, hy in ((bx + 1, kb_y + 1), (bx + zw - 1, kb_y + 1),
-                               (bx + 1, kb_y + kb_h - 1),
-                               (bx + zw - 1, kb_y + kb_h - 1)):
-                    cr.rectangle(hx - hs / 2, hy - hs / 2, hs, hs)
-                    cr.fill()
+        # realistic key matrix: backlight tinted per zone, dark keycaps
+        rows, cols = 6, 16
+        kgap = 2.0
+        kw = (kb_w - (cols + 1) * kgap) / cols
+        kh = (kb_h - (rows + 1) * kgap) / rows
+        for ri in range(rows):
+            for ci in range(cols):
+                zone = min(3, ci * 4 // cols)
+                zr = int(self.zone_colors[zone][0:2], 16) / 255.0
+                zg = int(self.zone_colors[zone][2:4], 16) / 255.0
+                zb = int(self.zone_colors[zone][4:6], 16) / 255.0
+                kx = kb_x + kgap + ci * (kw + kgap)
+                ky = kb_y + kgap + ri * (kh + kgap)
+                # backlight glow bed
+                cr.set_source_rgba(zr, zg, zb, 0.85)
+                self._rounded(cr, kx, ky, kw, kh, 2.0)
+                cr.fill()
+                # keycap face (dark, lets the glow rim show)
+                cr.set_source_rgba(0.10, 0.10, 0.12, 0.92)
+                self._rounded(cr, kx + kw * 0.18, ky + kh * 0.18,
+                              kw * 0.64, kh * 0.64, 1.5)
+                cr.fill()
+        # selection rectangle + handles around the selected zone
+        if 0 <= self.selected < 4:
+            bx, by, bw, bh = self._band_rects[self.selected]
+            cr.set_source_rgba(1, 1, 1, 0.95)
+            cr.set_line_width(1.6)
+            self._rounded(cr, bx + 1, by + 1, bw - 2, bh - 2, 4)
+            cr.stroke()
+            cr.set_source_rgb(1, 1, 1)
+            hs = 5.0
+            for hx, hy in ((bx + 1, by + 1), (bx + bw - 1, by + 1),
+                           (bx + 1, by + bh - 1), (bx + bw - 1, by + bh - 1)):
+                cr.rectangle(hx - hs / 2, hy - hs / 2, hs, hs)
+                cr.fill()
         # touchpad
         tp_w = deck_w * 0.30
         tp_h = deck_h - kb_h - 22
@@ -824,14 +828,14 @@ class OmenWindow(Adw.ApplicationWindow):
         self.toasts.add_toast(Adw.Toast(title=text))
 
     def _page(self, name, maxw=640):
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        # Adw.PreferencesPage scrolls internally; wrapping it in another
+        # ScrolledWindow double-scrolls and breaks pointer hit-testing on
+        # content below the fold (rendered position != picked position).
         clamp = Adw.Clamp()
         clamp.set_maximum_size(maxw)
         page = Adw.PreferencesPage()
-        scroll.set_child(clamp)
         clamp.set_child(page)
-        self.stack.add_named(scroll, name)
+        self.stack.add_named(clamp, name)
         return page
 
     def _paint_button(self, b, hexs):
@@ -1083,6 +1087,12 @@ class OmenWindow(Adw.ApplicationWindow):
             "driver interface is not used for streaming.")
         snap.connect("clicked", self._on_ls_snapshot)
         zbar.append(snap)
+        snote = Gtk.Label(
+            label="Layers are a software preview. Snapshot stages a static "
+                  "4-zone result; animation stays in preview.")
+        snote.add_css_class("dim-label")
+        snote.add_css_class("caption")
+        canvas_wrap.append(snote)
         canvas_wrap.append(zbar)
         body.append(canvas_wrap)
 
@@ -1472,6 +1482,9 @@ class OmenWindow(Adw.ApplicationWindow):
         out = self._ls_comp.tick()
         for i in range(4):
             self._stage("rgb_zones/zone0%d" % i, out[i])
+        # driver forces static on zone writes; stage it so the UI agrees
+        # and Discard reverts it like any staged change
+        self._stage("rgb_zones/animation_mode", "static")
         self._toast("Static snapshot staged - press Apply to write")
 
     def _ls_demo(self):

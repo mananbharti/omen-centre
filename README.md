@@ -153,6 +153,12 @@ OMEN_SYSFS_ROOT=/tmp/omen-mock OMEN_DIRECT_WRITE=1 \
 OMENCTL=$PWD/helper/omenctl python3 src/omen-centre.py
 ```
 
+`OMEN_DIRECT_WRITE=1` is a test-only escape hatch: it runs `omenctl`
+directly (unprivileged, against the mock tree) instead of through
+pkexec. Never set it in production - the packaged app always goes
+through pkexec with per-action admin authentication, and the privileged
+write path still needs its own on-device test.
+
 ## Verification status (honest)
 
 Verified on the target machine (2026-10-27): module load, all-zone color,
