@@ -321,6 +321,42 @@ class CurveGraph(Gtk.DrawingArea):
     def _on_end(self, g, dx, dy):
         self._drag = None
 
+    def _sync_entry(self):
+        self.entry.set_text(" ".join("%d:%d" % (t, p)
+                                     for t, p in self.points))
+
+    def add_point(self):
+        if len(self.points) >= 8:
+            return False
+        # insert at the widest temperature gap
+        best, gap = 0, -1
+        for i in range(len(self.points) - 1):
+            g = self.points[i + 1][0] - self.points[i][0]
+            if g > gap:
+                best, gap = i, g
+        if not self.points:
+            self.points = [[30, 30]]
+        elif len(self.points) == 1:
+            t = min(self.T_MAX, self.points[0][0] + 20)
+            self.points.append([t, min(100, self.points[0][1] + 20)])
+        elif gap >= 2:
+            t = (self.points[best][0] + self.points[best + 1][0]) // 2
+            p = (self.points[best][1] + self.points[best + 1][1]) // 2
+            self.points.insert(best + 1, [t, p])
+        else:
+            return False
+        self._sync_entry()
+        self.queue_draw()
+        return True
+
+    def remove_point(self):
+        if len(self.points) <= 2:
+            return False
+        self.points.pop()
+        self._sync_entry()
+        self.queue_draw()
+        return True
+
 
 class KeyboardPreview(Gtk.DrawingArea):
     """Stylized 4-zone keyboard, tinted per zone; click a zone to recolor."""
@@ -396,6 +432,149 @@ def fmt_temp(mc):
     if load_pref("unit", "C") == "F":
         return "%.0f°F" % (c * 9.0 / 5.0 + 32.0)
     return "%.0f°C" % c
+
+
+class LightCanvas(Gtk.DrawingArea):
+    """Light Studio-style canvas: gridded workspace with a stylized laptop;
+    the keyboard deck carries the 4 hardware zone bands. Click a band to
+    recolor that zone."""
+
+    def __init__(self, on_zone_click):
+        super().__init__()
+        self.zone_colors = ["FFFFFF"] * 4
+        self.selected = -1
+        self._on_zone_click = on_zone_click
+        self._band_rects = []
+        self.set_content_width(420)
+        self.set_content_height(310)
+        self.set_draw_func(self._draw)
+        click = Gtk.GestureClick()
+        click.connect("released", self._on_click)
+        self.add_controller(click)
+
+    def set_zone_color(self, i, hexs):
+        self.zone_colors[i] = hexs
+        self.queue_draw()
+
+    def _rounded(self, cr, x, y, w, h, r):
+        cr.new_sub_path()
+        cr.arc(x + w - r, y + r, r, -1.5708, 0)
+        cr.arc(x + w - r, y + h - r, r, 0, 1.5708)
+        cr.arc(x + r, y + h - r, r, 1.5708, 3.1416)
+        cr.arc(x + r, y + r, r, 3.1416, 4.7124)
+        cr.close_path()
+
+    def _draw(self, area, cr, w, h):
+        # gridded workspace background (Light Studio canvas)
+        cr.set_source_rgb(0.07, 0.07, 0.09)
+        cr.rectangle(0, 0, w, h)
+        cr.fill()
+        cr.set_source_rgba(1, 1, 1, 0.045)
+        cr.set_line_width(1.0)
+        step = 24.0
+        gx = 0.0
+        while gx <= w:
+            cr.move_to(gx, 0)
+            cr.line_to(gx, h)
+            cr.stroke()
+            gx += step
+        gy = 0.0
+        while gy <= h:
+            cr.move_to(0, gy)
+            cr.line_to(w, gy)
+            cr.stroke()
+            gy += step
+        # laptop geometry
+        lw = min(w * 0.62, 430.0)
+        scr_w, scr_h = lw * 0.78, h * 0.34
+        cx = w / 2.0
+        scr_x, scr_y = cx - scr_w / 2.0, h * 0.09
+        # screen bezel + content
+        cr.set_source_rgb(0.12, 0.12, 0.14)
+        self._rounded(cr, scr_x, scr_y, scr_w, scr_h, 8)
+        cr.fill()
+        cr.set_source_rgb(0.16, 0.17, 0.22)
+        self._rounded(cr, scr_x + 6, scr_y + 6, scr_w - 12, scr_h - 12, 5)
+        cr.fill()
+        # small red diamond accent on screen (generic stylized mark)
+        dxc, dyc, dr = cx, scr_y + scr_h / 2.0, 7.0
+        cr.set_source_rgba(0.85, 0.15, 0.25, 0.9)
+        cr.move_to(dxc, dyc - dr)
+        cr.line_to(dxc + dr, dyc)
+        cr.line_to(dxc, dyc + dr)
+        cr.line_to(dxc - dr, dyc)
+        cr.close_path()
+        cr.fill()
+        # hinge
+        cr.set_source_rgb(0.10, 0.10, 0.12)
+        cr.rectangle(cx - scr_w / 2.0, scr_y + scr_h, scr_w, 5)
+        cr.fill()
+        # deck
+        deck_w, deck_h = lw, h * 0.36
+        deck_x, deck_y = cx - deck_w / 2.0, scr_y + scr_h + 7
+        cr.set_source_rgb(0.15, 0.15, 0.17)
+        self._rounded(cr, deck_x, deck_y, deck_w, deck_h, 8)
+        cr.fill()
+        # keyboard area with 4 zone bands
+        kb_x, kb_y = deck_x + 10, deck_y + 8
+        kb_w, kb_h = deck_w - 20, deck_h * 0.60
+        cr.set_source_rgb(0.09, 0.09, 0.11)
+        self._rounded(cr, kb_x, kb_y, kb_w, kb_h, 5)
+        cr.fill()
+        self._band_rects = []
+        zw = kb_w / 4.0
+        for i in range(4):
+            r = int(self.zone_colors[i][0:2], 16) / 255.0
+            g = int(self.zone_colors[i][2:4], 16) / 255.0
+            b = int(self.zone_colors[i][4:6], 16) / 255.0
+            bx = kb_x + i * zw
+            self._band_rects.append((bx, kb_y, zw, kb_h))
+            cr.set_source_rgba(r, g, b, 0.80)
+            self._rounded(cr, bx + 2, kb_y + 2, zw - 4, kb_h - 4, 4)
+            cr.fill()
+            # key grid texture
+            cr.set_source_rgba(0, 0, 0, 0.20)
+            cr.set_line_width(0.8)
+            for row in range(1, 4):
+                yy = kb_y + row * kb_h / 4.0
+                cr.move_to(bx + 5, yy)
+                cr.line_to(bx + zw - 5, yy)
+                cr.stroke()
+            for col in range(1, 5):
+                kx = bx + col * (zw - 4) / 5.0
+                cr.move_to(kx, kb_y + 4)
+                cr.line_to(kx, kb_y + kb_h - 4)
+                cr.stroke()
+            if i == self.selected:
+                cr.set_source_rgba(1, 1, 1, 0.95)
+                cr.set_line_width(1.6)
+                self._rounded(cr, bx + 1, kb_y + 1, zw - 2, kb_h - 2, 4)
+                cr.stroke()
+                cr.set_source_rgb(1, 1, 1)
+                hs = 5.0
+                for hx, hy in ((bx + 1, kb_y + 1), (bx + zw - 1, kb_y + 1),
+                               (bx + 1, kb_y + kb_h - 1),
+                               (bx + zw - 1, kb_y + kb_h - 1)):
+                    cr.rectangle(hx - hs / 2, hy - hs / 2, hs, hs)
+                    cr.fill()
+        # touchpad
+        tp_w = deck_w * 0.30
+        tp_h = deck_h - kb_h - 22
+        if tp_h > 8:
+            cr.set_source_rgb(0.11, 0.11, 0.13)
+            self._rounded(cr, cx - tp_w / 2.0, kb_y + kb_h + 6,
+                          tp_w, tp_h, 4)
+            cr.fill()
+
+    def _on_click(self, g, n, x, y):
+        for i, (bx, by, bw, bh) in enumerate(self._band_rects):
+            if bx <= x <= bx + bw and by <= y <= by + bh:
+                self.selected = i
+                self.queue_draw()
+                if self._on_zone_click:
+                    self._on_zone_click(i)
+                return
+
 
 
 class ColorPicker(Gtk.Popover):
@@ -667,7 +846,7 @@ class OmenWindow(Adw.ApplicationWindow):
         cards.set_homogeneous(True)
         self.home_cpu_temp = vital_card("CPU TEMP")
         self.home_gpu_temp = vital_card("GPU TEMP")
-        self.home_cpu_load = vital_card("CPU USE")
+        self.home_cpu_load = gauge_card("CPU")
         self.home_cpu_fan = vital_card("CPU FAN")
         self.home_gpu_fan = vital_card("GPU FAN")
         grid = Gtk.Grid()
@@ -678,7 +857,8 @@ class OmenWindow(Adw.ApplicationWindow):
         hcards = [self.home_cpu_temp, self.home_gpu_temp,
                   self.home_cpu_load, self.home_cpu_fan,
                   self.home_gpu_fan]
-        for idx, (box, _) in enumerate(hcards):
+        for idx, item in enumerate(hcards):
+            box = item[0]
             box.set_hexpand(True)
             grid.attach(box, idx % 3, idx // 3, 1, 1)
         grp.add(grid)
@@ -793,6 +973,9 @@ class OmenWindow(Adw.ApplicationWindow):
         btn = self.effect_buttons.get(mode)
         if btn:
             btn.set_active(True)
+        keys = [k for k, _l in EFFECTS]
+        if mode in keys:
+            self.effect_dd.set_selected(keys.index(mode))
         self.speed_spin.set_value(
             be.read_int("rgb_zones/animation_speed") or 5)
         self._loading = False
@@ -803,31 +986,134 @@ class OmenWindow(Adw.ApplicationWindow):
         self.allzone_btn._omen_hex = hexcol
         self._stage(rel, hexcol)
 
-    # ---- Lighting ----
+    # ---- Lighting (Light Studio-style editor) ----
+    # Hardware truth: the installed driver exposes 4 zones + all-zone, one
+    # global animation + speed, brightness, and gradient_config. "Layers"
+    # here map to what the hardware can really do (base colors + one effect)
 
     def _build_lighting(self):
         page = self._page("lighting")
+        self._staged_writes = getattr(self, "_staged_writes", {})
 
-        grp = Adw.PreferencesGroup(
-            title="Static color",
-            description="Click a zone box to change its color. "
-                        "Zone-to-side mapping varies by keyboard - use "
-                        "Identify to see yours.")
-        page.add(grp)
+        tgrp = Adw.PreferencesGroup()
+        page.add(tgrp)
+        self._ls_stack = Gtk.Stack()
+        self._ls_stack.set_transition_type(
+            Gtk.StackTransitionType.CROSSFADE)
+        tabs = Gtk.StackSwitcher()
+        tabs.set_stack(self._ls_stack)
+        tabs.set_halign(Gtk.Align.CENTER)
+        trow = Adw.ActionRow()
+        trow.set_child(tabs)
+        tgrp.add(trow)
+        srow2 = Adw.ActionRow()
+        srow2.set_child(self._ls_stack)
+        tgrp.add(srow2)
 
-        self.kb_preview = KeyboardPreview(self._on_preview_zone)
-        prow = Adw.ActionRow(
-            title="Keyboard zones",
-            subtitle="Four zone bands in LOGICAL order (Z0-Z3), not a "
-                     "physical layout. On this unit Z0 lit the right/"
-                     "numpad side - use Identify for your mapping.")
-        prow.set_child(self.kb_preview)
-        grp.add(prow)
+        # ---------------- Layout tab ----------------
+        layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        layout.set_margin_top(6)
+        layout.set_margin_bottom(6)
 
+        body = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        layout.append(body)
+
+        # Layers panel (left)
+        layers = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        layers.set_size_request(172, -1)
+        lcap = Gtk.Label(label="Layers")
+        lcap.add_css_class("heading")
+        lcap.set_halign(Gtk.Align.START)
+        layers.append(lcap)
+        newbtn = Gtk.Button(label="+ Create New Layer")
+        newbtn.set_sensitive(False)
+        newbtn.set_tooltip_text(
+            "The installed driver supports a base color layer plus one "
+            "effect layer - extra layers would have no hardware to run on")
+        layers.append(newbtn)
+        lbox = Gtk.ListBox()
+        lbox.add_css_class("boxed-list")
+        lbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self._ls_layer_rows = {}
+        for key, title, sub in (
+                ("base", "Base", "Zone colors (4 hardware zones)"),
+                ("effect", "Effect", "One animation + speed")):
+            r = Adw.ActionRow(title=title, subtitle=sub)
+            r.set_activatable(True)
+            r.connect("activated", self._on_ls_layer, key)
+            lbox.append(r)
+            self._ls_layer_rows[key] = r
+        lbox.select_row(self._ls_layer_rows["base"])
+        layers.append(lbox)
+        body.append(layers)
+
+        # Canvas (center)
+        self.kb_preview = LightCanvas(self._on_preview_zone)
+        self.kb_preview.set_hexpand(True)
+        body.append(self.kb_preview)
+
+        # Right effects panel
+        rpanel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        rpanel.set_size_request(196, -1)
+        ecap = Gtk.Label(label="Effects")
+        ecap.add_css_class("heading")
+        ecap.set_halign(Gtk.Align.START)
+        rpanel.append(ecap)
+        self.effect_dd = Gtk.DropDown.new_from_strings(
+            [label for _k, label in EFFECTS])
+        keys = [k for k, _l in EFFECTS]
+        current_mode = be.read("rgb_zones/animation_mode") or "static"
+        self._loading = True
+        if current_mode in keys:
+            self.effect_dd.set_selected(keys.index(current_mode))
+        self._loading = False
+        self.effect_dd.connect("notify::selected", self._on_effect_dd)
+        rpanel.append(self.effect_dd)
+
+        pcbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        plab = Gtk.Label(label="Primary color")
+        plab.set_hexpand(True)
+        plab.set_halign(Gtk.Align.START)
+        pcbox.append(plab)
+        allcur = (be.read("rgb_zones/all") or "FFFFFF").upper()
+        if len(allcur) != 6:
+            allcur = "FFFFFF"
+        ab = Gtk.Button()
+        ab.add_css_class("zone-box")
+        ab.set_size_request(36, 24)
+        self._paint_button(ab, allcur)
+        ab._omen_hex = allcur
+        self.allzone_btn = ab
+        ab.connect("clicked", self._on_zone_clicked, "rgb_zones/all", ab)
+        pcbox.append(ab)
+        rpanel.append(pcbox)
+
+        slab = Gtk.Label(label="Speed")
+        slab.set_halign(Gtk.Align.START)
+        rpanel.append(slab)
+        self.speed_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(
+            value=be.read_int("rgb_zones/animation_speed") or 5,
+            lower=1, upper=10, step_increment=1, page_increment=2))
+        self.speed_spin.connect("value-changed", self._on_anim_speed)
+        rpanel.append(self.speed_spin)
+
+        note = Gtk.Label(
+            label="Per-key lighting, random-color options and peripheral "
+                  "sync are not exposed by the installed driver "
+                  "(4 zones verified).")
+        note.add_css_class("dim-label")
+        note.add_css_class("caption")
+        note.set_wrap(True)
+        note.set_max_width_chars(28)
+        note.set_halign(Gtk.Align.START)
+        rpanel.append(note)
+        body.append(rpanel)
+
+        # Zone tiles under the canvas
         zbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         zbox.set_homogeneous(True)
+        zbox.set_halign(Gtk.Align.CENTER)
         self.zone_btns = []
-        self._staged_writes = getattr(self, "_staged_writes", {})
         for i in range(4):
             rel = "rgb_zones/zone0%d" % i
             current = (be.read(rel) or "FFFFFF").upper()
@@ -835,7 +1121,8 @@ class OmenWindow(Adw.ApplicationWindow):
                 current = "FFFFFF"
             b = Gtk.Button()
             b.add_css_class("zone-box")
-            label = Gtk.Label(label="Zone %d" % i)
+            b.set_size_request(64, 36)
+            label = Gtk.Label(label="Z%d" % i)
             label.add_css_class("caption")
             wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             wrap.set_halign(Gtk.Align.CENTER)
@@ -848,24 +1135,75 @@ class OmenWindow(Adw.ApplicationWindow):
             self.zone_btns.append(b)
         for i, b in enumerate(self.zone_btns):
             self.kb_preview.set_zone_color(i, b._omen_hex)
-        zrow = Adw.ActionRow()
-        zrow.set_child(zbox)
-        grp.add(zrow)
+        layout.append(zbox)
+        zcap = Gtk.Label(
+            label="Zones in logical order (Z0-Z3) - physical side mapping "
+                  "varies by keyboard; use Identify to see yours.")
+        zcap.add_css_class("dim-label")
+        zcap.add_css_class("caption")
+        layout.append(zcap)
 
-        arow = Adw.ActionRow(title="All zones")
-        allcur = (be.read("rgb_zones/all") or "FFFFFF").upper()
-        if len(allcur) != 6:
-            allcur = "FFFFFF"
-        ab = Gtk.Button()
-        ab.add_css_class("zone-box")
-        self._paint_button(ab, allcur)
-        ab._omen_hex = allcur
-        self.allzone_btn = ab
-        ab.set_valign(Gtk.Align.CENTER)
-        ab.connect("clicked", self._on_zone_clicked, "rgb_zones/all", ab)
-        arow.add_suffix(ab)
-        grp.add(arow)
+        self._ls_stack.add_titled(layout, "layout", "Layout")
 
+        # ---------------- Effects tab ----------------
+        effects_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                               spacing=8)
+        effects_page.set_margin_top(6)
+        effects_page.set_margin_bottom(6)
+        flow = Gtk.FlowBox()
+        flow.set_max_children_per_line(4)
+        flow.set_min_children_per_line(3)
+        flow.set_row_spacing(8)
+        flow.set_column_spacing(8)
+        flow.set_selection_mode(Gtk.SelectionMode.NONE)
+        flow.set_homogeneous(True)
+        self.effect_buttons = {}
+        first = None
+        for key, label in EFFECTS:
+            b = Gtk.ToggleButton(label=label)
+            b.connect("toggled", self._on_effect, key)
+            if first is None:
+                first = b
+            else:
+                b.set_group(first)
+            flow.append(b)
+            self.effect_buttons[key] = b
+        active = self.effect_buttons.get(current_mode)
+        self._loading = True
+        if active:
+            active.set_active(True)
+        self._loading = False
+        effects_page.append(flow)
+
+        grow = Adw.ActionRow(
+            title="Gradient config",
+            subtitle='Applies in Gradient mode. Format: '
+                     '"0,1,2:FF0000,00FF00;3:800080"')
+        self.gradient_entry = Gtk.Entry()
+        self.gradient_entry.set_placeholder_text(
+            "0,1,2:FF0000,00FF00;3:800080")
+        saved = be.read("rgb_zones/gradient_config")
+        if saved:
+            self.gradient_entry.set_text(saved)
+        self.gradient_entry.set_width_chars(26)
+        self.gradient_entry.set_valign(Gtk.Align.CENTER)
+        gbtn = Gtk.Button(label="Apply")
+        gbtn.set_valign(Gtk.Align.CENTER)
+        gbtn.connect("clicked", self._on_gradient)
+        grow.add_suffix(self.gradient_entry)
+        grow.add_suffix(gbtn)
+        ggrp = Adw.PreferencesGroup()
+        ggrp.add(grow)
+        effects_page.append(ggrp)
+
+        self._ls_stack.add_titled(effects_page, "effects", "Effects")
+        _t = os.environ.get("OMEN_LS_TAB")
+        if _t in ("layout", "effects"):
+            self._ls_stack.set_visible_child_name(_t)
+
+        # ---------------- shared controls ----------------
+        ctrl = Adw.PreferencesGroup()
+        page.add(ctrl)
         idrow = Adw.ActionRow(
             title="Identify zones",
             subtitle="Lights zones red, green, blue, white (0 to 3)")
@@ -873,7 +1211,7 @@ class OmenWindow(Adw.ApplicationWindow):
         ibtn.set_valign(Gtk.Align.CENTER)
         ibtn.connect("clicked", self._on_identify)
         idrow.add_suffix(ibtn)
-        grp.add(idrow)
+        ctrl.add(idrow)
 
         brow = Adw.ActionRow(title="Brightness")
         self.brightness_scale = Gtk.Scale.new_with_range(
@@ -885,7 +1223,7 @@ class OmenWindow(Adw.ApplicationWindow):
         self._brightness_timer = None
         self.brightness_scale.connect("value-changed", self._on_brightness)
         brow.add_suffix(self.brightness_scale)
-        grp.add(brow)
+        ctrl.add(brow)
 
         lockrow = Adw.ActionRow(
             title="Lock brightness",
@@ -896,7 +1234,7 @@ class OmenWindow(Adw.ApplicationWindow):
             be.read("rgb_zones/brightness_lock") == "1")
         self.lock_switch.connect("notify::active", self._on_brightness_lock)
         lockrow.add_suffix(self.lock_switch)
-        grp.add(lockrow)
+        ctrl.add(lockrow)
 
         sw = Gtk.FlowBox()
         sw.set_max_children_per_line(18)
@@ -914,10 +1252,10 @@ class OmenWindow(Adw.ApplicationWindow):
             sb.connect("clicked", self._on_swatch, hexcol)
             sw.append(sb)
         swrow = Adw.ActionRow(title="Colors",
-                              subtitle="Basic set - zone tiles open a "
-                                       "custom picker")
+                              subtitle="Basic set - applies to all zones; "
+                                       "zone tiles open a custom picker")
         swrow.add_suffix(sw)
-        grp.add(swrow)
+        ctrl.add(swrow)
 
         self._apply_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
                                   spacing=8)
@@ -938,65 +1276,20 @@ class OmenWindow(Adw.ApplicationWindow):
         self._apply_bar.append(applyb)
         barrow = Adw.ActionRow()
         barrow.set_child(self._apply_bar)
-        grp.add(barrow)
+        ctrl.add(barrow)
 
-        agrp = Adw.PreferencesGroup(title="Animation")
-        page.add(agrp)
-        flow = Gtk.FlowBox()
-        flow.set_max_children_per_line(4)
-        flow.set_min_children_per_line(3)
-        flow.set_row_spacing(8)
-        flow.set_column_spacing(8)
-        flow.set_selection_mode(Gtk.SelectionMode.NONE)
-        flow.set_homogeneous(True)
-        current_mode = be.read("rgb_zones/animation_mode") or "static"
-        self.effect_buttons = {}
-        first = None
-        for key, label in EFFECTS:
-            b = Gtk.ToggleButton(label=label)
-            b.connect("toggled", self._on_effect, key)
-            if first is None:
-                first = b
-            else:
-                b.set_group(first)
-            flow.append(b)
-            self.effect_buttons[key] = b
-        active = self.effect_buttons.get(current_mode)
-        self._loading = True
-        if active:
-            active.set_active(True)
-        self._loading = False
-        erow = Adw.ActionRow()
-        erow.set_child(flow)
-        agrp.add(erow)
+    def _on_effect_dd(self, dd, _pspec):
+        if self._loading:
+            return
+        keys = [k for k, _l in EFFECTS]
+        idx = dd.get_selected()
+        if 0 <= idx < len(keys):
+            self._stage("rgb_zones/animation_mode", keys[idx])
 
-        srow = Adw.ActionRow(title="Speed", subtitle="1 (slow) to 10 (fast)")
-        self.speed_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(
-            value=be.read_int("rgb_zones/animation_speed") or 5,
-            lower=1, upper=10, step_increment=1, page_increment=2))
-        self.speed_spin.set_valign(Gtk.Align.CENTER)
-        self.speed_spin.connect("value-changed", self._on_anim_speed)
-        srow.add_suffix(self.speed_spin)
-        agrp.add(srow)
+    def _on_ls_layer(self, _row, key):
+        self._ls_stack.set_visible_child_name(
+            "effects" if key == "effect" else "layout")
 
-        grow = Adw.ActionRow(
-            title="Gradient config",
-            subtitle='Applies in Gradient mode. Format: '
-                     '"0,1,2:FF0000,00FF00;3:800080"')
-        self.gradient_entry = Gtk.Entry()
-        self.gradient_entry.set_placeholder_text(
-            "0,1,2:FF0000,00FF00;3:800080")
-        saved = be.read("rgb_zones/gradient_config")
-        if saved:
-            self.gradient_entry.set_text(saved)
-        self.gradient_entry.set_width_chars(26)
-        self.gradient_entry.set_valign(Gtk.Align.CENTER)
-        gbtn = Gtk.Button(label="Apply")
-        gbtn.set_valign(Gtk.Align.CENTER)
-        gbtn.connect("clicked", self._on_gradient)
-        grow.add_suffix(self.gradient_entry)
-        grow.add_suffix(gbtn)
-        agrp.add(grow)
 
     def _on_preview_zone(self, i):
         b = self.zone_btns[i]
@@ -1194,7 +1487,21 @@ class OmenWindow(Adw.ApplicationWindow):
             cbtn = Gtk.Button(label="Apply")
             cbtn.set_valign(Gtk.Align.CENTER)
             cbtn.connect("clicked", self._on_curve_apply)
+            addb = Gtk.Button(label="+ Point")
+            addb.set_valign(Gtk.Align.CENTER)
+            addb.connect(
+                "clicked",
+                lambda b: self.curve_graph.add_point()
+                or self._toast("Curve already has 8 points"))
+            rmb = Gtk.Button(label="- Point")
+            rmb.set_valign(Gtk.Align.CENTER)
+            rmb.connect(
+                "clicked",
+                lambda b: self.curve_graph.remove_point()
+                or self._toast("Curve needs at least 2 points"))
             crow2.add_suffix(self.curve_entry)
+            crow2.add_suffix(addb)
+            crow2.add_suffix(rmb)
             crow2.add_suffix(cbtn)
             fgrp.add(crow2)
             resetrow = Adw.ActionRow(
@@ -1613,7 +1920,8 @@ class OmenWindow(Adw.ApplicationWindow):
 
         self.home_cpu_temp[1].set_label(ct_s)
         self.home_gpu_temp[1].set_label(gt_s)
-        self.home_cpu_load[1].set_label(load_s)
+        self.home_cpu_load[1].set_value((load or 0.0) / 100.0, load_s)
+        self.home_cpu_load[2].set_label("Utilization")
         self.home_cpu_fan[1].set_label(
             ("%d RPM" % cpu_rpm) if cpu_rpm is not None else "n/a")
         self.home_gpu_fan[1].set_label(
