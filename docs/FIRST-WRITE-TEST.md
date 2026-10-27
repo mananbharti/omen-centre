@@ -49,9 +49,13 @@ src/state/omen_state.c (current default branch, read 14:16).
   edits it.
 - Every zone write first calls animation_stop(), which rewrites ALL FOUR zones
   to the keyboard from the driver's in-memory colours (loaded from the state
-  file at module load), then writes the target zone. So a write
-  to Z0 can also rewrite Z1-Z3. The installed module version is not confirmed;
-  this is the current default branch.
+  file at module load), then writes the target zone. So a write to Z0 can
+  also rewrite Z1-Z3 with colours that differ from what the keyboard shows
+  now. Worst case is cosmetic and recoverable with the explicit writes in
+  Restore, but it is a real consequence to accept before Apply. The installed
+  module version is not confirmed; this is the current default branch. This
+  app flashes or replaces no firmware; the driver talks to the keyboard
+  through the HP WMI interface.
 
 ## 3. Install (files only, lighting-only helper)
 
