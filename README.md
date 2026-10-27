@@ -7,6 +7,17 @@ kernel driver. Built and tested on Fedora 44 Workstation (HP Omen 16-wf1xxx).
 Python 3 + GTK 4 + Libadwaita. No dependencies beyond a standard Fedora
 Workstation install. Follows the system light/dark style.
 
+## Design reference
+
+The layout mirrors Windows OMEN Gaming Hub per HP's official documentation
+(support.hp.com doc ish_3912817-3737596-16): left navigation rail, Home
+dashboard with live vitals, Performance Control (power modes + Thermal
+Control AUTO/MAX/MANUAL), Lighting (static per-zone + animations),
+System Vitals, My Games, Key assignments. This is a doc-guided
+re-implementation for the Linux driver, not a copy of the Windows
+binary. Silent maps to the driver's silent preset (roughly OMEN's ECO,
+without its display/turbo caps).
+
 ## Features
 
 **Lighting**
