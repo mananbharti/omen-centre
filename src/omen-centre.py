@@ -93,6 +93,8 @@ RAIL_CSS = b"""
   border-bottom: 2px solid #d92642; }
 .canvas-controls { background-color: alpha(#101016, 0.92);
   border-radius: 8px; padding: 4px 6px; margin-bottom: 10px; }
+.pcolor-swatch { border-radius: 6px; min-width: 44px; min-height: 30px;
+  padding: 0; border: 1px solid alpha(white, 0.15); }
 """
 
 
@@ -1150,30 +1152,36 @@ class OmenWindow(Adw.ApplicationWindow):
         self.effect_dd.connect("notify::selected", self._on_effect_dd)
         rpanel.append(self.effect_dd)
 
-        pcbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         plab = Gtk.Label(label="Primary color")
-        plab.set_hexpand(True)
         plab.set_halign(Gtk.Align.START)
-        pcbox.append(plab)
+        plab.add_css_class("dim-label")
+        plab.add_css_class("caption")
+        rpanel.append(plab)
         allcur = (be.read("rgb_zones/all") or "FFFFFF").upper()
         if len(allcur) != 6:
             allcur = "FFFFFF"
         ab = Gtk.Button()
-        ab.add_css_class("zone-box")
-        ab.set_size_request(36, 24)
+        ab.add_css_class("pcolor-swatch")
+        ab.set_halign(Gtk.Align.START)
         self._paint_button(ab, allcur)
         ab._omen_hex = allcur
         self.allzone_btn = ab
+        ab.set_tooltip_text("Applies to all zones - click for picker")
         ab.connect("clicked", self._on_zone_clicked, "rgb_zones/all", ab)
-        pcbox.append(ab)
-        rpanel.append(pcbox)
+        rpanel.append(ab)
 
         slab = Gtk.Label(label="Speed")
         slab.set_halign(Gtk.Align.START)
+        slab.add_css_class("dim-label")
+        slab.add_css_class("caption")
         rpanel.append(slab)
-        self.speed_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(
-            value=be.read_int("rgb_zones/animation_speed") or 5,
-            lower=1, upper=10, step_increment=1, page_increment=2))
+        self.speed_spin = Gtk.Scale.new_with_range(
+            Gtk.Orientation.HORIZONTAL, 1, 10, 1)
+        self.speed_spin.set_value(
+            be.read_int("rgb_zones/animation_speed") or 5)
+        self.speed_spin.set_round_digits(0)
+        self.speed_spin.set_draw_value(True)
+        self.speed_spin.set_value_pos(Gtk.PositionType.RIGHT)
         self.speed_spin.connect("value-changed", self._on_anim_speed)
         rpanel.append(self.speed_spin)
 
